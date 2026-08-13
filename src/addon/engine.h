@@ -13,6 +13,7 @@
 #include <fcitx/instance.h>
 
 #include "config/voiceinput-config.h"
+#include "asr/asr_engine.h"
 #include "pipeline/pipeline.h"
 #include "types.h"
 
@@ -37,23 +38,30 @@ public:
     void setConfig(const RawConfig& rawConfig) override;
     void reloadConfig() override;
 
+    const Configuration* getSubConfig(const std::string& path) const override;
+    void setSubConfig(const std::string& path,
+                      const RawConfig& rawConfig) override;
+
     std::string subModeLabelImpl(const InputMethodEntry& entry,
                                  InputContext& ic) override;
 
 private:
     void InitializeIfNeeded();
-    void RecreateEngines();
-    void TryRecreateEngines();
     void OnAsrResult(const std::string& text);
     void PollResults();
     void ClearUI();
     void SetStatus(const std::string& text);
+    std::unique_ptr<AsrEngine> CreateAsrEngine();
+    void ReloadActiveAsrClient();
+    void ReloadLLMClient();
 
     Instance* instance_;
     std::unique_ptr<Pipeline> pipeline_;
     EventDispatcher eventDispatcher_;
     std::unique_ptr<EventSourceTime> delayedStopEvent_;
     VoiceInputConfig config_;
+    OpenAIAsrConfig openaiConfig_;
+    VolcengineAsrConfig volcengineConfig_;
 
     InputContext* activeIc_ = nullptr;
     std::atomic<uint64_t> activeGeneration_{0};
@@ -64,10 +72,6 @@ private:
     std::string statusText_;
     std::string pendingPreeditText_;
     uint64_t pendingPreeditUtteranceId_ = 0;
-
-    // Set when setConfig() changes ASR/LLM settings; engines are recreated
-    // before the next recording session (Pipeline::Start).
-    bool enginesDirty_ = false;
 
     // Push-to-talk state
     bool pttActive_ = false;

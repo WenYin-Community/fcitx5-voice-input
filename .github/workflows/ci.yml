@@ -1,0 +1,165 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # 多发行版容器矩阵：每个发行版在原生容器内构建原生包（deb/rpm）。
+  # onnxruntime 策略：system=发行版系统包（依赖随包声明，dpkg-shlibdeps 自动计算），
+  # download=upstream release 预编译包（Ubuntu 24.04/Debian 12 仓库无此包）。
+  build:
+    name: build (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    container: ${{ matrix.container }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ubuntu-24.04
+            container: ubuntu:24.04
+            onnx: download
+            cpack: DEB
+            git_cmd: apt-get update -qq && apt-get install -y -qq git
+          - name: ubuntu-26.04
+            container: ubuntu:26.04
+            onnx: system
+            cpack: DEB
+            git_cmd: apt-get update -qq && apt-get install -y -qq git
+          - name: debian-12
+            container: debian:12
+            onnx: download
+            cpack: DEB
+            git_cmd: apt-get update -qq && apt-get install -y -qq git
+          - name: debian-13
+            container: debian:13
+            onnx: system
+            cpack: DEB
+            git_cmd: apt-get update -qq && apt-get install -y -qq git
+          - name: fedora-44
+            container: fedora:44
+            onnx: system
+            cpack: RPM
+            git_cmd: dnf install -y git
+          - name: opensuse-tumbleweed
+            container: opensuse/tumbleweed
+            onnx: system
+            cpack: RPM
+            git_cmd: zypper --non-interactive --gpg-auto-import-keys refresh && zypper --non-interactive install -y git
+    steps:
+      # 最小容器镜像不带 git，checkout 需要；同时为 actions/checkout 的
+      # submodules 支持提供 git（REST 回退不支持 submodules）
+      - name: Install git (container bootstrap)
+        shell: bash
+        run: ${{ matrix.git_cmd }}
+
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - uses: ./.github/actions/build
+        with:
+          distro: ${{ matrix.name }}
+          onnx_strategy: ${{ matrix.onnx }}
+          cpack_generator: ${{ matrix.cpack }}
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: package-${{ matrix.name }}
+          path: |
+            *.deb
+            *.rpm
+          if-no-files-found: error
+          retention-days: 1
+
+  # 链接校验（nm/readelf/dlopen smoke）只跑一次，矩阵内不重复。
+  verify:
+    name: verify hardened addon loading
+    runs-on: ubuntu-latest
+    container: ubuntu:24.04
+    steps:
+      - name: Install git (container bootstrap)
+        shell: bash
+        run: apt-get update -qq && apt-get install -y -qq git
+
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - uses: ./.github/actions/build
+        with:
+          distro: ubuntu-24.04
+          onnx_strategy: download
+          run_verify: "true"
+
+  # 回归防护：录音后端为可选依赖（CMake QUIET 探测），
+  # 确保缺失任一后端时仍能构建，且产物不引用缺失库的符号。
+  build-no-pipewire:
+    name: build without PipeWire
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - uses: ./.github/actions/build
+        with:
+          distro: ubuntu-24.04
+          onnx_strategy: download
+          capture_pkgs: libpulse-dev # 不装 PipeWire dev 包，模拟上游 pipewire 不可用
+
+      - name: Verify no PipeWire symbols
+        shell: bash
+        run: |
+          if nm -D build/voice-input-addon.so | grep -qE "pw_|pipewire"; then
+            echo "::error::build succeeded but .so still links PipeWire symbols (HAVE_PIPEWIRE misconfig)"
+            exit 1
+          fi
+          echo "OK: PipeWire backend excluded, PulseAudio only"
+
+  # Arch 包：archlinux 容器内直跑 makepkg（无 Docker daemon）
+  arch:
+    name: build (archlinux)
+    runs-on: ubuntu-latest
+    container: archlinux
+    steps:
+      - name: Install git (container bootstrap)
+        shell: bash
+        run: pacman -Syu --noconfirm git
+
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          pacman -Syu --noconfirm base-devel git cmake pkg-config gettext \
+            fcitx5 pipewire libpulse jsoncpp curl onnxruntime-cpu
+
+      # prepare.sh 用 git archive 生成源码包；容器内 checkout 文件属主与 git 用户
+      # 可能不一致（宿主挂载场景），显式声明 safe.directory 避免 dubious ownership
+      - name: Mark workspace as safe for git
+        shell: bash
+        run: git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+
+      - uses: ./.github/actions/aur
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: package-arch
+          path: |
+            dist/aur/*.pkg.tar.zst
+            dist/aur/PKGBUILD
+            dist/aur/src/*.tar.gz
+          if-no-files-found: error
+          retention-days: 1

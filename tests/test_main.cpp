@@ -9,7 +9,7 @@
 #include <thread>
 #include <vector>
 
-#include "asr/wav_encoder.h"
+#include "asr/utils/base64.h"
 #include "types.h"
 #include "utils/thread_safe_queue.h"
 #include "vad/silero_vad.h"
@@ -78,31 +78,19 @@ void TestQueueConcurrent() {
     CHECK_EQ(count, kThreads * kPerThread);
 }
 
-// ── WAV / Base64 ─────────────────────────────────────────────────────
-
-void TestWavEncode() {
-    float pcm[] = {0.5f, -0.5f, 1.0f, -1.0f, 0.0f};
-    auto wav = fcitx::FloatPcmToWav(pcm, 5);
-    CHECK_EQ(wav.size(), 44u + 10u);
-    CHECK(std::memcmp(wav.data(), "RIFF", 4) == 0);
-    CHECK(std::memcmp(wav.data() + 8, "WAVE", 4) == 0);
-    CHECK(std::memcmp(wav.data() + 36, "data", 4) == 0);
-
-    uint32_t dataSize = 0;
-    std::memcpy(&dataSize, wav.data() + 40, 4);
-    CHECK_EQ(dataSize, 10u);
-
-    auto sampleAt = [&wav](size_t i) {
-        int16_t s = 0;
-        std::memcpy(&s, wav.data() + 44 + i * 2, 2);
-        return s;
-    };
-    CHECK_EQ(sampleAt(0), static_cast<int16_t>(16383));   // 0.5 * 32767
-    CHECK_EQ(sampleAt(1), static_cast<int16_t>(-16383));  // -0.5 * 32767
-    CHECK_EQ(sampleAt(2), static_cast<int16_t>(32767));   // clamped
-    CHECK_EQ(sampleAt(3), static_cast<int16_t>(-32767));  // clamped
-    CHECK_EQ(sampleAt(4), static_cast<int16_t>(0));
+void TestQueueBounded() {
+    ThreadSafeQueue<int> q(3);
+    q.Push(1);
+    q.Push(2);
+    q.Push(3);
+    q.Push(4);  // drops 1, keeps newest
+    CHECK_EQ(q.Size(), 3u);
+    int v = 0;
+    CHECK(q.TryPop(v));
+    CHECK_EQ(v, 2);
 }
+
+// ── Base64 ───────────────────────────────────────────────────────────
 
 void TestBase64() {
     CHECK(fcitx::Base64Encode(nullptr, 0) == "");
@@ -114,7 +102,7 @@ void TestBase64() {
     CHECK(fcitx::Base64Encode(reinterpret_cast<const uint8_t*>(ab), 2) == "YWI=");
 }
 
-// ── VADWorker state machine ─────────────────────────────────────────
+// ── VADWorker state machine (SpeechEvent stream) ────────────────────
 
 class MockVad : public fcitx::VadModel {
 public:
@@ -139,7 +127,7 @@ private:
 struct VadTestHarness {
     fcitx::VADWorker worker;
     ThreadSafeQueue<fcitx::AudioFrame> frames;
-    ThreadSafeQueue<fcitx::Utterance> utterances;
+    ThreadSafeQueue<fcitx::SpeechEvent> events;
     std::shared_ptr<std::vector<float>> probs;
 
     VadTestHarness() : probs(std::make_shared<std::vector<float>>()) {
@@ -153,7 +141,7 @@ struct VadTestHarness {
         cfg.maxSpeechMs = 20000;
         worker.SetConfig(cfg);
         worker.SetFrameQueue(&frames);
-        worker.SetUtteranceQueue(&utterances);
+        worker.SetSpeechEventQueue(&events);
         auto vad = std::make_unique<MockVad>();
         vad->probs = probs;
         worker.SetVadModel(std::move(vad));
@@ -171,17 +159,29 @@ struct VadTestHarness {
             frames.Push(f);
         }
     }
-};
 
-bool WaitForQueueNotEmpty(ThreadSafeQueue<fcitx::Utterance>& q, int timeoutMs) {
-    auto deadline = std::chrono::steady_clock::now() +
-                    std::chrono::milliseconds(timeoutMs);
-    while (std::chrono::steady_clock::now() < deadline) {
-        if (q.Size() > 0) return true;
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    // Wait for the worker to go idle, then drain all events.
+    std::vector<fcitx::SpeechEvent> DrainEvents(int timeoutMs) {
+        auto deadline = std::chrono::steady_clock::now() +
+                        std::chrono::milliseconds(timeoutMs);
+        size_t lastSize = 0;
+        int quiet = 0;
+        while (std::chrono::steady_clock::now() < deadline) {
+            size_t s = events.Size();
+            if (s > 0 && s == lastSize) {
+                if (++quiet >= 5) break;  // stable for 50ms
+            } else {
+                quiet = 0;
+            }
+            lastSize = s;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        std::vector<fcitx::SpeechEvent> out;
+        fcitx::SpeechEvent e;
+        while (events.TryPop(e)) out.push_back(std::move(e));
+        return out;
     }
-    return false;
-}
+};
 
 void TestVadSpeechOnset() {
     VadTestHarness h;
@@ -190,20 +190,20 @@ void TestVadSpeechOnset() {
     h.worker.Start();
     h.Push(8, 0.5f);
 
-    fcitx::Utterance u;
-    CHECK(WaitForQueueNotEmpty(h.utterances, 2000));
-    CHECK(h.utterances.TryPop(u));
-    // pre-roll (2) + speech (3) + trailing silence (3) = 8 frames
-    CHECK_EQ(u.pcm.size(), 8u * fcitx::kWindowSize);
-    // first sample is the pre-roll audio of frame 0
-    CHECK_EQ(u.pcm[0], static_cast<int16_t>(0.5f * 32000.0f));
-    CHECK(!WaitForQueueNotEmpty(h.utterances, 300));  // nothing left
+    auto events = h.DrainEvents(2000);
+    CHECK_EQ(events.size(), 10u);  // Begin + preRoll + 7 Audio + End
+    CHECK(events[0].type == fcitx::SpeechEventType::Begin);
+    // pre-roll audio event carries 2 frames (64ms)
+    CHECK(events[1].type == fcitx::SpeechEventType::Audio);
+    CHECK_EQ(events[1].pcm.size(), 2u * fcitx::kWindowSize);
+    CHECK_EQ(events[1].pcm[0], static_cast<int16_t>(0.5f * 32000.0f));
+    CHECK(events.back().type == fcitx::SpeechEventType::End);
 }
 
-void TestVadShortUtteranceDiscarded() {
+void TestVadShortUtteranceCancelled() {
     VadTestHarness h;
     // Shortest possible utterance is pre-roll (2) + 1 trailing frame = 3
-    // frames (96ms); raise minSpeechMs so this one is below the limit.
+    // frames (96ms); raise minSpeechMs so this one gets a Cancel.
     fcitx::VADWorker::Config cfg;
     cfg.speechThreshold = 0.5f;
     cfg.silenceThreshold = 0.35f;
@@ -214,12 +214,13 @@ void TestVadShortUtteranceDiscarded() {
     cfg.maxSpeechMs = 20000;
     h.worker.SetConfig(cfg);
 
-    // onset at frame 1, then silence: 3 frames total < minSpeechMs
     h.probs->assign({0.9f, 0.9f, 0.0f, 0.0f, 0.0f});
     h.worker.Start();
     h.Push(5, 0.5f);
 
-    CHECK(!WaitForQueueNotEmpty(h.utterances, 500));
+    auto events = h.DrainEvents(2000);
+    CHECK(!events.empty());
+    CHECK(events.back().type == fcitx::SpeechEventType::Cancel);
 }
 
 void TestVadMaxSpeechForceFlush() {
@@ -235,38 +236,34 @@ void TestVadMaxSpeechForceFlush() {
     cfg.maxSpeechMs = 96;
     h.worker.SetConfig(cfg);
 
-    // frames 0-1: onset; frame 2: 3rd frame reaches maxSpeech -> flush.
-    // frames 3-4: next utterance onset; frames 5-7: silence -> flush.
-    h.probs->assign({0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.0f, 0.0f, 0.0f});
+    // frames 0-1: onset; frame 2 reaches maxSpeech -> flush.
+    // frames 3-4: next onset; frame 5 reaches maxSpeech again -> flush.
+    // frames 6-7: silence, no session.
+    h.probs->assign({0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.0f, 0.0f});
     h.worker.Start();
     h.Push(8, 0.5f);
 
-    fcitx::Utterance u;
-    CHECK(WaitForQueueNotEmpty(h.utterances, 2000));
-    CHECK(h.utterances.TryPop(u));
-    CHECK_EQ(u.pcm.size(), 3u * fcitx::kWindowSize);  // pre-roll 2 + frame 2
-    CHECK(WaitForQueueNotEmpty(h.utterances, 2000));
-    CHECK(h.utterances.TryPop(u));
-    // frame 3-4 onset, frame 5 appended reaches maxSpeech again: 3 frames
-    CHECK_EQ(u.pcm.size(), 3u * fcitx::kWindowSize);
-    CHECK(!WaitForQueueNotEmpty(h.utterances, 300));
+    auto events = h.DrainEvents(2000);
+    int ends = 0;
+    for (const auto& e : events) {
+        if (e.type == fcitx::SpeechEventType::End) ++ends;
+    }
+    CHECK_EQ(ends, 2);  // frame 2 flushes, frame 5 flushes (too long)
 }
 
 void TestVadDirectPushShortUtterance() {
     VadTestHarness h;
     h.worker.SetDirectPush(true);
     h.worker.Start();
-    h.Push(1, 0.5f);  // 32ms — would fail minSpeechMs in VAD mode
+    h.Push(1, 0.5f);  // 32ms — would be Cancel in VAD mode
 
-    // In direct push mode the worker flushes as soon as the queue is idle,
-    // so wait for the utterance instead of racing Stop() against the
-    // worker thread.
-    fcitx::Utterance u;
-    CHECK(WaitForQueueNotEmpty(h.utterances, 2000));
-    CHECK(h.utterances.TryPop(u));
-    CHECK_EQ(u.pcm.size(), 1u * fcitx::kWindowSize);
-    h.worker.Stop();
-    CHECK(!h.utterances.TryPop(u));
+    // The worker flushes when the queue is idle: Begin + Audio + End.
+    auto events = h.DrainEvents(2000);
+    CHECK_EQ(events.size(), 3u);
+    CHECK(events[0].type == fcitx::SpeechEventType::Begin);
+    CHECK(events[1].type == fcitx::SpeechEventType::Audio);
+    CHECK_EQ(events[1].pcm.size(), 1u * fcitx::kWindowSize);
+    CHECK(events[2].type == fcitx::SpeechEventType::End);
 }
 
 } // anonymous namespace
@@ -274,10 +271,10 @@ void TestVadDirectPushShortUtterance() {
 int main() {
     TestQueueFifo();
     TestQueueConcurrent();
-    TestWavEncode();
+    TestQueueBounded();
     TestBase64();
     TestVadSpeechOnset();
-    TestVadShortUtteranceDiscarded();
+    TestVadShortUtteranceCancelled();
     TestVadMaxSpeechForceFlush();
     TestVadDirectPushShortUtterance();
 

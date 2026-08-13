@@ -3,13 +3,18 @@
 #include <atomic>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
+#include <unordered_map>
+#include <vector>
 
-#include "config/config.h"
+#include "config/voiceinput-config.h"
 #include "capture/audio_capture.h"
 #include "vad/vad.h"
 #include "asr/asr_engine.h"
+#include "asr/asr_session.h"
+#include "asr/session_reaper.h"
 #include "llm/llm_client.h"
 #include "types.h"
 #include "utils/thread_safe_queue.h"
@@ -29,34 +34,30 @@ public:
     void Init(const VoiceInputConfig& config);
     void SetAsrEngine(std::unique_ptr<AsrEngine> engine);
     void SetLLMClient(std::unique_ptr<LLMClient> client);
-    void SetRecreateCallback(std::function<void()> cb) {
-        recreateCb_ = std::move(cb);
-    }
     void SetResultCallback(ResultCallback cb);
     void SetVadStatusCallback(VADWorker::VadStatusCallback cb);
     void SetLevelCallback(VADWorker::LevelCallback cb);
     void SetGeneration(uint64_t gen) { generation_.store(gen); }
 
-    // Lifecycle
     void Start();
     void Stop();
-    void StopCapture();  // Stop audio capture only (non-blocking)
+    void StopCapture();  // Stop audio capture only (non-blocking, PTT release)
     void Abort();
     bool IsRunning() const { return running_.load(); }
 
-    // Main thread polls this
     ThreadSafeQueue<AsrResult>& ResultQueue() { return resultQueue_; }
 
     void SetConfig(const VoiceInputConfig& config);
 
 private:
     bool StartCapture();
-    void AsrWorkerLoop();
+    void AsrDispatcherLoop();
 
-    // Queues (bounded: when full the oldest item is dropped to cap memory)
-    ThreadSafeQueue<AudioFrame> frameQueue_{1024};      // ~33s of audio
-    ThreadSafeQueue<Utterance> utteranceQueue_{32};
-    ThreadSafeQueue<AsrResult> resultQueue_{1024};
+    // Queues（带容量上限：超限丢最旧，防止异常路径下内存无界增长）
+    // 1024 帧 ≈ 32s 音频缓冲；256 事件 ≈ 256 段语音；128 结果
+    ThreadSafeQueue<AudioFrame> frameQueue_{1024};
+    ThreadSafeQueue<SpeechEvent> speechEventQueue_{256};
+    ThreadSafeQueue<AsrResult> resultQueue_{128};
 
     // Workers
     std::unique_ptr<VADWorker> vadWorker_;
@@ -65,8 +66,17 @@ private:
     // Capture
     std::unique_ptr<AudioCapture> capture_;
 
-    // ASR
-    std::unique_ptr<AsrEngine> asrEngine_;
+    // ASR session management
+    std::shared_ptr<AsrEngine> asrEngine_;
+    std::shared_ptr<AsrSession> activeSession_;
+    uint64_t activeSessionId_{0};
+    std::unordered_map<uint64_t, uint64_t> sessionGenerationMap_;
+    std::mutex sessionMapMutex_;   // 保护 sessionGenerationMap_（worker/ASR/主线程三方）
+    std::mutex engineMutex_;       // 保护 asrEngine_ 指针替换与使用
+    std::unique_ptr<SessionReaper> reaper_;
+
+    // ASR streaming batching
+    std::vector<float> pendingAsrAudio_;
 
     // LLM
     std::unique_ptr<LLMClient> llmClient_;
@@ -74,17 +84,16 @@ private:
     // State
     std::atomic<bool> running_{false};
     std::atomic<uint64_t> generation_{0};
-    uint64_t utteranceCounter_{0};
+    std::atomic<uint64_t> utteranceCounter_{0};
+    // 回调守卫：Abort 后置 false，引擎 worker 线程的异步回调据此丢弃
+    std::shared_ptr<std::atomic<bool>> resultGuard_ =
+        std::make_shared<std::atomic<bool>>(true);
 
     // Config
     VoiceInputConfig config_;
 
     // Callback
     ResultCallback resultCb_;
-    // Called from Start() before (re)building the pipeline, with running_
-    // guaranteed false — the engine layer recreates ASR/LLM here after a
-    // config change.
-    std::function<void()> recreateCb_;
 };
 
 } // namespace fcitx

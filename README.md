@@ -20,18 +20,15 @@
 
 </div>
 
-**fcitx5-voice-input** is a Fcitx5 addon for voice input. Captures audio via PulseAudio (or PipeWire fallback), detects speech segments with Silero ONNX VAD, and transcribes via OpenAI-compatible API.
+**fcitx5-voice-input** is a Fcitx5 addon for voice input. Captures audio via PulseAudio (or PipeWire fallback), detects speech segments with Silero ONNX VAD, and transcribes via OpenAI-compatible API or Volcengine Doubao streaming ASR.
 
 ## Features
 
-- Voice input via OpenAI-compatible API (Whisper, Groq, SiliconFlow, etc.)
-- **Xiaomi MiMo ASR** (`mimo-v2.5-asr`) native support
-- **Chat Completions API format** (`/chat/completions` + JSON Base64) for providers that don't support Whisper endpoint
-- **Two recording modes**:
-  - **VAD Auto-segment**: Silero ONNX VAD automatically detects speech boundaries (hands-free)
-  - **Push-to-Talk**: Hold a hotkey (default: Right Ctrl) to record, release to commit (privacy-friendly)
-- Fetch available models from API and select via dropdown
-- LLM post-processing (correction / translation / formatting)
+- Voice input (OpenAI Whisper API / compatible services, Volcengine Doubao streaming ASR, or Xiaomi MiMo ASR)
+- Silero ONNX VAD for automatic speech segmentation (hands-free)
+- Optional Push-to-Talk mode: hold a hotkey to record, release to commit
+- Real-time partial transcript update during speech (requires Volcengine backend)
+- Queue-based pipeline: Audio Capture → VAD → ASR → EventDispatcher → commit
 - Graphical configuration via `fcitx5-configtool`
 - Smart delayed stop on window switching
 
@@ -43,59 +40,121 @@
 
 ### 1. Installation
 
+#### AUR (Arch Linux)
+
+```bash
+yay -S fcitx5-voice-input
+# or
+paru -S fcitx5-voice-input
+# or build manually
+git clone https://aur.archlinux.org/fcitx5-voice-input.git
+cd fcitx5-voice-input
+makepkg -si
+```
+
 #### Build from source
 
 See [Build](#build) below.
-
-#### Fedora RPM
-
-```bash
-rpmbuild -ba fcitx5-voice-input.spec
-sudo dnf install ~/rpmbuild/RPMS/x86_64/fcitx5-voice-input-*.rpm
-```
 
 ### 2. Configuration
 
 After installation, open `fcitx5-configtool`, find **Voice Input** in the Input Method list and add it.
 
-Then open the Addon config for **VoiceInput** and set:
+Then open the Addon config for **VoiceInput**:
+
+#### Main Config
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `ASRBackend` | ASR backend (`openai` / `mimo`) | `openai` |
-| `ApiFormat` | API format: Multipart Form or JSON Base64 | `whisper` |
-| `Recording Mode` | VAD auto-segment or Push-to-Talk | `vad` |
-| `Push-to-Talk Hotkey` | Hotkey for PTT mode | Right Ctrl |
-| `OpenAIEndpoint` | API endpoint URL | `https://api.openai.com/v1` |
-| `OpenAIApiKey` | API Key | **(required)** |
-| `Voice Model` | Model name | `whisper-1` |
-| `Output Language` | Output language, empty for auto | (empty) |
-| `VAD Threshold (%)` | VAD sensitivity (0-100) | `50` |
-| `Silence Threshold (ms)` | Silence duration to end utterance | `800` |
+| `ActiveBackend` | ASR backend | `openai` |
+| `VADThreshold` | VAD sensitivity (0-100), higher = less sensitive | `20` |
+| `SilenceThresholdMs` | Silence duration to end utterance (ms) | `800` |
+| `StartFrames` | Consecutive speech frames to trigger onset | `2` |
+| `PreRollMs` | Audio before onset to include (ms) | `300` |
+| `MinSpeechMs` | Minimum utterance duration (ms) | `300` |
+| `MaxSpeechMs` | Maximum utterance duration (ms) | `30000` |
 
-**API Key**: Fill in your API Key in `OpenAIApiKey`. Compatible with any OpenAI-format service:
+Select your backend from the `ActiveBackend` dropdown, then click the gear button ⚙ to open that backend's config page.
+
+#### OpenAI Backend (sub-config)
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `BaseUrl` | API base URL | `https://api.openai.com/v1` |
+| `ApiKey` | API Key | **(required)** |
+| `Model` | Model name | `whisper-1` |
+| `Language` | Output language | `auto` (English/中文) |
+| `ApiMode` | API mode: `whisper` (standard Whisper API), `chat` (DashScope Chat Completions) or `realtime` (GPT Realtime streaming transcription) | `whisper` |
+| `CommitIntervalMs` | Periodic commit interval (ms) in realtime mode; keeps emitting partials for long speech with no pauses | `5000` |
+| `LLMEnabled` | LLM post-processing | `false` |
+| `LLMModel` | Post-processing LLM model | (empty) |
+| `LLMSystemPrompt` | Post-processing system prompt | (empty) |
+| `LLMStream` | LLM streaming output | `true` |
+| `AutoCommit` | Auto-commit when no LLM | `true` |
+
+Set `ActiveBackend=openai`, click the gear button, and fill in your API Key. Compatible with any OpenAI-format service:
 
 - [OpenAI](https://platform.openai.com/) — `https://api.openai.com/v1`
 - [Groq](https://console.groq.com/) — `https://api.groq.com/openai/v1`
 - [SiliconFlow](https://cloud.siliconflow.com) — `https://api.siliconflow.com/v1`
-- [Xiaomi MiMo](https://mimo.mi.com/) — Select backend `Xiaomi MiMo ASR`
+- [Alibaba Cloud DashScope](https://help.aliyun.com/zh/model-studio/qwen-asr-api-reference) — `https://dashscope.aliyuncs.com/compatible-mode/v1`
 
-**Fetch Models**: After filling endpoint and API key, check **Fetch Available Models** → Apply → reopen config to select from the dropdown.
+  **Note:** DashScope's `qwen3-asr-flash` model uses Chat Completions API instead of the standard Whisper API. Set `ApiMode=chat` when using this provider.
+  ```
+  BaseUrl=https://dashscope.aliyuncs.com/compatible-mode/v1
+  ApiKey=your_dashscope_api_key
+  Model=qwen3-asr-flash
+  ApiMode=chat
+  Language=zh
+  ```
+
+  **GPT Realtime streaming (optional):** Set `ApiMode=realtime` to transcribe incrementally (partials update the preedit live, final commits on speech end) via the OpenAI Realtime transcription session. With an OpenAI account, use `gpt-live-transcribe` (recommended, true continuous deltas) or `gpt-realtime-whisper` (compatible alternative).
+  ```
+  BaseUrl=https://api.openai.com/v1
+  ApiKey=your_openai_api_key
+  Model=gpt-live-transcribe
+  ApiMode=realtime
+  Language=zh
+  ```
+  **Note:** Realtime mode requires a WebSocket-capable endpoint, and `gpt-live-transcribe` / `gpt-realtime-whisper` need a paid-tier account (Free is not supported). Audio is sent at 24kHz (the addon automatically upsamples the captured 16kHz).
+
+  **Xiaomi MiMo ASR (optional):** Set `ActiveBackend=mimo` to use [Xiaomi MiMo](https://mimo.mi.com/) (`mimo-v2.5-asr`). MiMo runs on the OpenAI-compatible engine with `api-key` auth and Chat Completions format; the endpoint and model are normalized automatically, so you only need to fill in your MiMo API Key in the OpenAI sub-config.
+
+#### Volcengine Doubao Backend (sub-config)
+
+Set `ActiveBackend=volcengine`, click the gear button to open the Volcengine config page.
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `Endpoint` | WebSocket endpoint | `wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async` |
+| `AuthMode` | Auth mode: `api_key` or `app_access_key` | `api_key` |
+| `ApiKey` | API Key (new console) | **(required for api_key mode)** |
+| `AppKey` | App Key (legacy console) | **(required for app_access_key mode)** |
+| `AccessKey` | Access Token (legacy console) | **(required for app_access_key mode)** |
+| `ResourceId` | Resource ID | `volc.seedasr.sauc.duration` |
+| `ChunkMs` | Audio chunk size per packet (ms) | `200` |
+| `EnableITN` | Enable ITN text normalization | `true` |
+| `EnablePunc` | Enable punctuation | `true` |
+| `EnableDDC` | Enable DDC smoothing | `false` |
+| `EnableNonstream` | Enable second-pass recognition | `true` |
+| `EndWindowMs` | Server-side end-of-speech window (ms) | `800` |
+
+Volcengine authentication requires a resource purchased from the [Volcengine console](https://console.volcengine.com/). The Resource ID depends on your model and purchase plan:
+
+- Model 2.0 hourly: `volc.seedasr.sauc.duration`
+- Model 2.0 concurrency: `volc.seedasr.sauc.concurrent`
+- Model 1.0 hourly: `volc.bigasr.sauc.duration`
+- Model 1.0 concurrency: `volc.bigasr.sauc.concurrent`
+
+**Troubleshooting:** If recognition fails, check the addon log for `X-Tt-Logid` and provide it to Volcengine support.
 
 ### 3. How to Use
 
-**VAD Mode (default):**
 1. Switch to **Voice Input** IME
 2. Start speaking — VAD automatically detects speech and records
-3. Stop speaking (default 800ms silence timeout) — audio is sent for ASR
-4. Recognition result is committed automatically
+3. With the **Volcengine** backend, partial recognition text appears in the preedit area in real-time as you speak
+4. Stop speaking (default 800ms silence timeout) — final recognition result is committed
 5. Stay in Voice Input mode and continue speaking for consecutive recognition
-
-**Push-to-Talk Mode:**
-1. Switch to **Voice Input** IME
-2. Hold the hotkey (default: Right Ctrl) — recording starts
-3. Release the hotkey — audio is sent for ASR
-4. Recognition result is committed automatically
 
 When switching windows, the plugin delays stop by 200ms. Quick switch-back cancels the stop, avoiding unnecessary restarts.
 
@@ -107,14 +166,13 @@ When switching windows, the plugin delays stop by 200ms. Quick switch-back cance
 - `libpulse-simple` — PulseAudio capture (preferred)
 - `libpipewire-0.3` — PipeWire capture (fallback)
 - `jsoncpp` — JSON parsing
-- `libcurl` — HTTP client (required for ASR)
+- `libcurl` — HTTP/WebSocket client (>= 7.86.0, required for ASR)
+- `zlib` — Gzip compression (required for Volcengine backend)
 - `onnxruntime` — Silero VAD ONNX Runtime
 
-> **Arch Linux:** `sudo pacman -S fcitx5 pulseaudio pipewire jsoncpp curl onnxruntime-cpu`
+> **Arch Linux:** `sudo pacman -S fcitx5 pulseaudio pipewire jsoncpp curl onnxruntime-cpu zlib`
 >
-> **Debian/Ubuntu:** `sudo apt install fcitx5 libpulse-dev libpipewire-0.3-dev libjsoncpp-dev libcurl4-openssl-dev libonnxruntime-dev`
->
-> **Fedora:** `sudo dnf install fcitx5-devel pipewire-devel pulseaudio-libs-devel jsoncpp-devel libcurl-devel onnxruntime-devel`
+> **Debian/Ubuntu:** `sudo apt install fcitx5 libpulse-dev libpipewire-0.3-dev libjsoncpp-dev libcurl4-openssl-dev libonnxruntime-dev zlib1g-dev`
 
 ### Build Steps
 
@@ -144,17 +202,20 @@ sudo cmake --install build --prefix /usr
 
 ## Notes
 
-- **API Key Security**: API key is stored in plain text in `~/.config/fcitx5/conf/voiceinput.conf`. Ensure proper file permissions
-- **Network Required**: Cloud ASR backends require internet. Local ASR can be added via the AsrEngine interface
+- **API Key Security**: API keys are stored in plain text in `~/.config/fcitx5/conf/voiceinput-openai.conf` and `~/.config/fcitx5/conf/voiceinput-volcengine.conf`. Ensure proper file permissions
+- **Network Required**: OpenAI backend requires internet. Local ASR can be added via the AsrEngine interface
 - **Audio Device**: Auto-selects system default input. To specify a device, choose from the `AudioSource` dropdown. Only input sources are listed (no Monitor sources)
-- **VAD Model**: The Silero VAD model is distributed via git submodule (`third_party/silero-vad/`) and copied to the install directory at build time. Not required in Push-to-Talk mode
+- **VAD Model**: The Silero VAD model is distributed via git submodule (`third_party/silero-vad/`) and copied to the install directory at build time. Run `git submodule update --init --recursive` before building
 - **PipeWire Users**: The PulseAudio backend works fine under pipewire-pulse. Native PipeWire is only used as fallback when PulseAudio is completely unavailable
+- **Local ASR**: Not yet implemented. The codebase provides an `AsrEngine` abstract interface for future local ASR integration
 - **Window Switching**: A 200ms delayed stop prevents unnecessary restarts on quick window switches. Long inactivity will stop the pipeline
 
 ## Architecture Overview
 
 ```
-Audio Capture Thread → FrameQueue → VAD Worker Thread → UtteranceQueue → ASR Worker Thread → ResultQueue → EventDispatcher → commitString
+Audio Capture Thread → FrameQueue → VAD Worker Thread → SpeechEventQueue → ASR Worker Thread → ResultQueue → EventDispatcher → commitString
+
+SpeechEvent types: Begin (speech onset) → Audio (32ms frames, batched to 200ms by Pipeline) → End (silence) / Cancel (too short)
 ```
 
 Three worker threads + main thread, connected by `ThreadSafeQueue`. See [ARCHITECTURE.md](ARCHITECTURE.md) for details.

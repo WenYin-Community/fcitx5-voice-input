@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(fcitx5-voice-input VERSION 0.1.4 LANGUAGES CXX)
+project(fcitx5-voice-input VERSION 0.4.1 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 
@@ -35,20 +35,37 @@ else()
     set(FCITX5_ADDON_DIR "lib/fcitx5")
 endif()
 
-# PipeWire audio capture
+# PipeWire audio capture (optional — 缺失时仅失去该后端，不影响其余功能)
 pkg_check_modules(PIPEWIRE QUIET pipewire-0.3)
 if(NOT PIPEWIRE_FOUND)
-    pkg_check_modules(PIPEWIRE REQUIRED libpipewire-0.3)
+    pkg_check_modules(PIPEWIRE QUIET libpipewire-0.3)
 endif()
 
-# PulseAudio fallback capture
-pkg_check_modules(PULSE REQUIRED libpulse-simple libpulse)
+# PulseAudio fallback capture (optional — 缺失时仅失去该后端，不影响其余功能)
+pkg_check_modules(PULSE QUIET libpulse-simple libpulse)
+
+# 至少需要一个录音后端，否则 addon 无录音能力
+if(NOT PIPEWIRE_FOUND AND NOT PULSE_FOUND)
+    message(FATAL_ERROR "No audio capture backend found. Install at least one of: pipewire-0.3 (libpipewire-0.3-dev) or libpulse-simple (libpulse-dev)")
+endif()
+if(NOT PIPEWIRE_FOUND)
+    message(WARNING "PipeWire not found — building without PipeWire capture backend")
+endif()
+if(NOT PULSE_FOUND)
+    message(WARNING "PulseAudio not found — building without PulseAudio capture backend")
+endif()
 
 # JSON parsing
 pkg_check_modules(JSONCPP REQUIRED jsoncpp)
 
-# HTTP client (for OpenAI-compatible ASR)
+# HTTP/WebSocket client (for cloud ASR backends)
 find_package(CURL REQUIRED)
+if(CURL_VERSION_STRING VERSION_LESS "7.86.0")
+    message(FATAL_ERROR "Volcengine WebSocket ASR requires libcurl >= 7.86.0; found ${CURL_VERSION_STRING}")
+endif()
+
+# Gzip compression (for Volcengine WebSocket ASR)
+find_package(ZLIB REQUIRED)
 
 # Silero VAD via ONNX Runtime (the only VAD backend)
 set(ENABLE_SILERO_VAD ON)
@@ -95,34 +112,53 @@ message(STATUS "Silero VAD enabled with model: ${SILERO_VAD_MODEL_SOURCE}")
 # ─── Sources ──────────────────────────────────────────────────────────────────
 set(ADDON_SOURCES
     src/addon/engine.cpp
-    src/addon/capture/pipewire_capture.cpp
-    src/addon/capture/pulse_audio_capture.cpp
     src/addon/vad/vad.cpp
     src/addon/vad/silero_vad.cpp
     src/addon/pipeline/pipeline.cpp
     src/addon/asr/openai_asr.cpp
-    src/addon/asr/wav_encoder.cpp
+    src/addon/asr/realtime_asr.cpp
+    src/addon/asr/volcengine_asr.cpp
+    src/addon/asr/asr_engine.cpp
+    src/addon/asr/session_reaper.cpp
+    src/addon/asr/utils/base64.cpp
     src/addon/llm/llm_client.cpp
 )
+
+# 按可用性加入录音后端（可选依赖）
+if(PIPEWIRE_FOUND)
+    list(APPEND ADDON_SOURCES src/addon/capture/pipewire_capture.cpp)
+endif()
+if(PULSE_FOUND)
+    list(APPEND ADDON_SOURCES src/addon/capture/pulse_audio_capture.cpp)
+endif()
 
 set(ADDON_HEADERS
     src/addon/engine.h
     src/addon/types.h
-    src/addon/config/config.h
     src/addon/config/voiceinput-config.h
     src/addon/capture/audio_capture.h
-    src/addon/capture/pipewire_capture.h
-    src/addon/capture/pulse_audio_capture.h
     src/addon/vad/vad.h
     src/addon/vad/silero_vad.h
     src/addon/asr/asr_engine.h
+    src/addon/asr/asr_session.h
+    src/addon/asr/session_reaper.h
     src/addon/asr/openai_asr.h
-    src/addon/asr/wav_encoder.h
+    src/addon/asr/realtime_asr.h
+    src/addon/asr/volcengine_asr.h
     src/addon/llm/llm_client.h
     src/addon/pipeline/pipeline.h
     src/addon/utils/audio_buffer.h
     src/addon/utils/thread_safe_queue.h
+    src/addon/asr/utils/base64.h
 )
+
+# 头文件仅用于 IDE 索引，同样按可用性追加
+if(PIPEWIRE_FOUND)
+    list(APPEND ADDON_HEADERS src/addon/capture/pipewire_capture.h)
+endif()
+if(PULSE_FOUND)
+    list(APPEND ADDON_HEADERS src/addon/capture/pulse_audio_capture.h)
+endif()
 
 # ─── Library ──────────────────────────────────────────────────────────────────
 add_library(voice-input-addon MODULE ${ADDON_SOURCES} ${ADDON_HEADERS})
@@ -132,21 +168,28 @@ set_target_properties(voice-input-addon PROPERTIES PREFIX "")
 
 target_include_directories(voice-input-addon PRIVATE
     ${FCITX5_INCLUDE_DIRS}
-    ${PIPEWIRE_INCLUDE_DIRS}
-    ${PULSE_INCLUDE_DIRS}
     ${JSONCPP_INCLUDE_DIRS}
     ${CURL_INCLUDE_DIRS}
     ${ONNXRUNTIME_INCLUDE_DIRS}
     src/addon
 )
+# 录音库仅在编译期需要头文件（结构体/枚举/宏定义）；
+# 运行期通过 dlopen 按需加载（见 pulse/pipewire capture 的 LoadLib），
+# 因此不链接这两个库——避免 DT_NEEDED 硬依赖，库升级/soname 变更时 addon 仍可加载。
+if(PIPEWIRE_FOUND)
+    target_include_directories(voice-input-addon PRIVATE ${PIPEWIRE_INCLUDE_DIRS})
+endif()
+if(PULSE_FOUND)
+    target_include_directories(voice-input-addon PRIVATE ${PULSE_INCLUDE_DIRS})
+endif()
 
 target_link_libraries(voice-input-addon PRIVATE
     ${FCITX5_LIBRARIES}
-    ${PIPEWIRE_LIBRARIES}
-    ${PULSE_LIBRARIES}
     ${JSONCPP_LIBRARIES}
     ${ONNXRUNTIME_LIBRARIES}
+    ${CMAKE_DL_LIBS}
     CURL::libcurl
+    ZLIB::ZLIB
 )
 
 target_compile_definitions(voice-input-addon PRIVATE
@@ -154,6 +197,12 @@ target_compile_definitions(voice-input-addon PRIVATE
     FCITX_GETTEXT_DOMAIN="fcitx5-voice-input"
     VOICE_INPUT_LOCALE_DIR="${CMAKE_INSTALL_FULL_LOCALEDIR}"
 )
+if(PIPEWIRE_FOUND)
+    target_compile_definitions(voice-input-addon PRIVATE HAVE_PIPEWIRE)
+endif()
+if(PULSE_FOUND)
+    target_compile_definitions(voice-input-addon PRIVATE HAVE_PULSEAUDIO)
+endif()
 
 # ─── Translations ────────────────────────────────────────────────────────────
 find_program(GETTEXT_MSGFMT msgfmt REQUIRED)
@@ -210,8 +259,19 @@ install(FILES ${SILERO_VAD_MODEL_SOURCE}
     RENAME silero_vad.onnx
 )
 
-install(FILES data/fcitx5-voice-input.svg
+install(FILES data/icons/fcitx_voiceinput.svg
     DESTINATION share/icons/hicolor/scalable/apps
+)
+
+# Multi-size PNG icons for classicui compatibility (GTK icon theme lookup)
+foreach(SIZE 16 22 24 32 48)
+    install(FILES data/icons/hicolor/${SIZE}x${SIZE}/apps/fcitx_voiceinput.png
+        DESTINATION share/icons/hicolor/${SIZE}x${SIZE}/apps
+    )
+endforeach()
+
+install(FILES data/inputmethod/voiceinput.conf
+    DESTINATION share/fcitx5/inputmethod
 )
 
 # ─── Tests ────────────────────────────────────────────────────────────────────
@@ -231,7 +291,25 @@ set(CPACK_PACKAGE_CONTACT "64475363+devcxl@users.noreply.github.com")
 set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
 set(CPACK_DEBIAN_PACKAGE_MAINTAINER "devcxl <64475363+devcxl@users.noreply.github.com>")
 set(CPACK_DEBIAN_PACKAGE_SECTION "libs")
-set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS OFF)
+# 以下三项为各发行版默认值，CI 矩阵按发行版覆盖（cmake -D 传入，见
+# .github/actions/build/distro/*.sh）：
+# - 依赖名随 t64 迁移/发行版变化（libcurl4t64 vs libcurl4）；
+# - onnxruntime 为系统包时（Ubuntu 26.04/Debian 13/Fedora 44/openSUSE/Arch）
+#   开启 SHLIBDEPS，由 dpkg-shlibdeps 自动计算运行时依赖；
+# - onnxruntime 不在仓库的发行版（Ubuntu 24.04/Debian 12，CI 下载 upstream
+#   release 包）无法声明 Depends，DEB 用户需自行安装 onnxruntime 运行时。
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "fcitx5, libjsoncpp25, libcurl4t64, zlib1g" CACHE STRING "DEB runtime dependencies (per-distro, set by CI)")
+# 录音后端为可选运行时依赖：Recommends 二选一（Ubuntu/Debian 运行时包名），
+# 与 CMake 构建期的可选探测保持一致——缺任一后端时包仍可安装使用另一个
+set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "libpipewire-0.3-0 | libpulse0" CACHE STRING "DEB recommended capture backends (per-distro, set by CI)")
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS OFF CACHE BOOL "Compute DEB dependencies with dpkg-shlibdeps (ON when onnxruntime is a system package)")
 set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/devcxl/fcitx5-voice-input")
+
+# RPM package（Fedora/openSUSE，cpack -G RPM）
+# 运行时依赖由 rpmbuild 自动生成（.so SONAME → 提供包），无需手工维护
+set(CPACK_RPM_FILE_NAME RPM-DEFAULT) # fcitx5-voice-input-0.4.0-1.x86_64.rpm
+set(CPACK_RPM_PACKAGE_LICENSE "LGPL-3.0-or-later")
+set(CPACK_RPM_PACKAGE_GROUP "Unspecified")
+set(CPACK_RPM_PACKAGE_RELEASE "1")
 
 include(CPack)

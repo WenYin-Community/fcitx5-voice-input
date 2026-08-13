@@ -3,80 +3,137 @@ msgstr ""
 "Language: zh_CN\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 
-msgid "Fcitx5 Voice Input"
-msgstr "Fcitx5 AI语音输入"
+msgid "OpenAI Compatible"
+msgstr "OpenAI 兼容"
 
-msgid "ASR Backend"
-msgstr "语音识别后端"
+msgid "Volcengine Doubao"
+msgstr "火山引擎豆包"
 
-msgid "API Format"
-msgstr "API 格式"
+msgid "API Key"
+msgstr "API 密钥"
 
-msgid "Recording Mode"
-msgstr "录音模式"
+msgid "App Key + Access Key"
+msgstr "App 密钥 + Access 密钥"
 
-msgid "Push-to-Talk Hotkey"
-msgstr "Push-to-Talk 热键"
+msgid "Default (Auto)"
+msgstr "默认（自动）"
 
-msgid "OpenAI API Endpoint"
-msgstr "OpenAI API 地址"
+msgid "接口地址"
+msgstr "接口地址"
 
-msgid "OpenAI API Key"
-msgstr "OpenAI API 密钥"
+msgid "API 密钥"
+msgstr "API 密钥"
 
-msgid "Voice Model"
+msgid "语音模型"
 msgstr "语音模型"
 
-msgid "Select from available models"
-msgstr "从可用模型中选择"
-
-msgid "Fetch Available Models"
-msgstr "获取可用模型"
-
-msgid "Output Language"
+msgid "输出语言"
 msgstr "输出语言"
 
-msgid "Post-processing LLM Model"
-msgstr "后处理 LLM 模型"
-
-msgid "Post-processing System Prompt"
-msgstr "后处理系统提示词"
-
-msgid "LLM Post-processing"
+msgid "LLM 后处理"
 msgstr "LLM 后处理"
 
-msgid "LLM Streaming"
+msgid "后处理 LLM 模型"
+msgstr "后处理 LLM 模型"
+
+msgid "后处理系统提示词"
+msgstr "后处理系统提示词"
+
+msgid "LLM 流式输出"
 msgstr "LLM 流式输出"
 
-msgid "Auto-Commit when no LLM"
+msgid "无 LLM 时自动上屏"
 msgstr "无 LLM 时自动上屏"
 
-msgid "VAD Threshold (%)"
+msgid "WebSocket 地址"
+msgstr "WebSocket 地址"
+
+msgid "认证模式"
+msgstr "认证模式"
+
+msgid "App 密钥"
+msgstr "App 密钥"
+
+msgid "Access 密钥"
+msgstr "Access 密钥"
+
+msgid "资源 ID"
+msgstr "资源 ID"
+
+msgid "音频分片 (毫秒)"
+msgstr "音频分片 (毫秒)"
+
+msgid "ITN 逆文本标准化"
+msgstr "ITN 逆文本标准化"
+
+msgid "标点符号"
+msgstr "标点符号"
+
+msgid "语义顺滑"
+msgstr "语义顺滑"
+
+msgid "二次识别"
+msgstr "二次识别"
+
+msgid "判停窗口 (毫秒)"
+msgstr "判停窗口 (毫秒)"
+
+msgid "当前 ASR 后端"
+msgstr "当前 ASR 后端"
+
+msgid "语音检测阈值 (%)"
 msgstr "语音检测阈值 (%)"
 
-msgid "Silence Threshold (ms)"
+msgid "静音检测阈值 (毫秒)"
 msgstr "静音检测阈值 (毫秒)"
+
+msgid "语音输入就绪"
+msgstr "语音输入就绪"
+
+msgid "启动帧数"
+msgstr "启动帧数"
+
+msgid "预卷时长 (毫秒)"
+msgstr "预卷时长 (毫秒)"
+
+msgid "最短语音时长 (毫秒)"
+msgstr "最短语音时长 (毫秒)"
+
+msgid "最长语音时长 (毫秒)"
+msgstr "最长语音时长 (毫秒)"
+
+msgid "修正中..."
+msgstr "修正中..."
+
+msgid "正在录音中..."
+msgstr "正在录音中..."
+
+msgid "Voice Input"
+msgstr "语音"
+
+msgid "语音识别失败"
+msgstr "语音识别失败"
+
+msgid "语音识别未配置"
+msgstr "语音识别未配置"
+
+msgid "按住热键说话"
+msgstr "按住热键说话"
+
+msgid "录音中..."
+msgstr "录音中..."
+
+msgid "识别中..."
+msgstr "识别中..."
 
 msgid "VAD Auto-segment (hands-free)"
 msgstr "VAD 自动分段（免按键）"
 
 msgid "Hold hotkey to record (PTT)"
-msgstr "按住热键录音（Push-to-Talk）"
+msgstr "按住热键说话（PTT）"
 
-msgid "Voice input ready"
-msgstr "语音输入就绪"
+msgid "Xiaomi MiMo ASR"
+msgstr "小米 MiMo ASR"
 
-msgid "Hold hotkey to record"
-msgstr "按住热键开始录音"
-
-msgid "Recording..."
-msgstr "录音中..."
-
-msgid "Recording in progress..."
-msgstr "正在录音中..."
-
-msgid "Recognizing..."
-msgstr "识别中..."
-
-msgid "Refining..."
-msgstr "修正中..."
+msgid "按住说话热键"
+msgstr "按住说话热键"

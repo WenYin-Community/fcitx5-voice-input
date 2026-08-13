@@ -42,40 +42,39 @@ public:
 
     void SetConfig(const Config& config);
     void SetFrameQueue(ThreadSafeQueue<AudioFrame>* queue);
-    void SetUtteranceQueue(ThreadSafeQueue<Utterance>* queue);
+    void SetSpeechEventQueue(ThreadSafeQueue<SpeechEvent>* queue);
     void SetVadStatusCallback(VadStatusCallback cb);
     void SetLevelCallback(LevelCallback cb);
 
-    void Start();
-    void Stop();
-
-    // When true, skip VAD model and push all audio directly to utterance queue
+    // When true (PTT mode), skip the VAD model and emit Begin/Audio/End
+    // events for all captured audio; short utterances are not filtered.
     void SetDirectPush(bool direct) { directPush_ = direct; }
 
     // Test seam: overrides the model created in Start().
     void SetVadModel(std::unique_ptr<VadModel> model);
+
+    void Start();
+    void Stop();
 
     bool IsRunning() const { return running_.load(); }
 
 private:
     void WorkerLoop();
     void ProcessFrame(const AudioFrame& frame, float probability,
-                      const Config& cfg);
-    void FlushUtterance(int64_t endMs, const Config& cfg);
+                      const Config& config);
+    void FlushUtterance(int64_t endMs);
     void AppendPreRoll(const std::array<int16_t, kWindowSize>& pcm,
-                       const Config& cfg);
+                       size_t maxPreRollSamples);
     void ResetSession();
 
     Config config_;
-
-    // Protects config_ (written by SetConfig on the main thread, read by
-    // WorkerLoop on the VAD thread).
-    std::mutex configMutex_;
+    std::mutex configMutex_;  // SetConfig（主线程）与 worker 线程快照隔离
 
     std::unique_ptr<VadModel> silero_;
+    std::string loadedModelPath_;  // 已加载模型路径（模型缓存复用判断）
 
     ThreadSafeQueue<AudioFrame>* frameQueue_ = nullptr;
-    ThreadSafeQueue<Utterance>* utteranceQueue_ = nullptr;
+    ThreadSafeQueue<SpeechEvent>* speechEventQueue_ = nullptr;
 
     std::unique_ptr<std::thread> thread_;
     std::atomic<bool> running_{false};
@@ -84,15 +83,15 @@ private:
     VadStatusCallback vadStatusCb_;
     LevelCallback levelCb_;
 
-    // Direct push mode (skip VAD model)
+    // Direct push mode (PTT): skip VAD model
     bool directPush_ = false;
+    bool sessionActive_ = false;  // directPush 会话进行中
 
     // Session state
     enum class State { Idle, Speaking };
     State state_ = State::Idle;
 
     std::deque<int16_t> preRoll_;
-    std::vector<int16_t> currentAudio_;
 
     int speechFrames_ = 0;
     int silenceFrames_ = 0;

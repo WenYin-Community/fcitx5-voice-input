@@ -20,6 +20,13 @@ size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
     return total;
 }
 
+// 进度回调：Cancel() 后中断在途 HTTP 传输（返回非 0 中止请求）
+int CancelProgressCallback(void* clientp, curl_off_t, curl_off_t, curl_off_t,
+                           curl_off_t) {
+    auto* cancelled = static_cast<std::atomic<bool>*>(clientp);
+    return cancelled->load() ? 1 : 0;
+}
+
 // Extract "text" field from a JSON response.
 // Returns empty string on parse failure or missing field.
 std::string ExtractJsonText(const std::string& content) {
@@ -89,12 +96,10 @@ std::string LLMClient::Process(const std::string& text) {
     Json::StreamWriterBuilder writer;
     std::string bodyStr = Json::writeString(writer, body);
 
-    FCITX_INFO() << "[voice-input:llm] POST " << url
+    FCITX_DEBUG() << "[voice-input:llm] POST " << url
                  << " model=" << config_.model
                  << " input=" << text.size() << " chars"
                  << " body=" << bodyStr.size() << " bytes";
-
-    FCITX_DEBUG() << "[voice-input:llm] Request body:\n" << bodyStr;
 
     // HTTP request
     auto tStart = std::chrono::steady_clock::now();
@@ -121,6 +126,10 @@ std::string LLMClient::Process(const std::string& text) {
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "fcitx5-voice-input/" VOICE_INPUT_VERSION);
+    // Cancel() 后中断在途传输
+    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+    curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, CancelProgressCallback);
+    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &cancelled_);
 
     CURLcode res = curl_easy_perform(curl);
 
@@ -180,14 +189,12 @@ std::string LLMClient::Process(const std::string& text) {
     std::string extracted = ExtractJsonText(content);
     std::string result = extracted.empty() ? text : extracted;
 
-    FCITX_INFO() << "[voice-input:llm] Response: http=" << httpCode
+    FCITX_DEBUG() << "[voice-input:llm] Response: http=" << httpCode
                  << " elapsed=" << elapsedMs << "ms"
                  << " output=" << result.size() << " chars";
 
-    FCITX_DEBUG() << "[voice-input:llm] Response body:\n" << response;
-
-    FCITX_INFO() << "[voice-input:llm] Done: raw=\"" << text
-                 << "\" → out=\"" << result << "\"";
+    FCITX_DEBUG() << "[voice-input:llm] Done: raw=" << text.size()
+                 << " chars → out=" << result.size() << " chars";
     return result;
 }
 

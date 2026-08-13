@@ -1,384 +1,375 @@
 #include "openai_asr.h"
 
+#include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstring>
+#include <mutex>
 #include <sstream>
+#include <thread>
 
 #include <curl/curl.h>
 #include <fcitx-utils/log.h>
 #include <json/json.h>
 
-#include "asr/wav_encoder.h"
+#include "utils/base64.h"
+
+using namespace std::chrono_literals;
 
 namespace fcitx {
 namespace {
 
-// ── Curl write callback ─────────────────────────────────────────────
-size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
-    size_t total = size * nmemb;
-    auto* str = static_cast<std::string*>(userp);
-    str->append(static_cast<char*>(contents), total);
-    return total;
-}
+#pragma pack(push, 1)
+struct WavHeader {
+    char riff[4] = {'R', 'I', 'F', 'F'};
+    uint32_t fileSize = 0;
+    char wave[4] = {'W', 'A', 'V', 'E'};
+    char fmt[4] = {'f', 'm', 't', ' '};
+    uint32_t fmtSize = 16;
+    uint16_t audioFormat = 1;       // PCM
+    uint16_t numChannels = 1;       // mono
+    uint32_t sampleRate = 16000;
+    uint32_t byteRate = 32000;      // sampleRate * 1 * 2
+    uint16_t blockAlign = 2;        // 1 * 2
+    uint16_t bitsPerSample = 16;
+    char data[4] = {'d', 'a', 't', 'a'};
+    uint32_t dataSize = 0;
+};
+#pragma pack(pop)
 
-} // anonymous namespace
+std::vector<uint8_t> FloatPcmToWav(const float* pcm, size_t frames) {
+    WavHeader header;
+    size_t dataBytes = frames * sizeof(int16_t);
+    header.fileSize = static_cast<uint32_t>(sizeof(WavHeader) - 8 + dataBytes);
+    header.dataSize = static_cast<uint32_t>(dataBytes);
 
-// ── OpenaiCompatAsrEngine ──────────────────────────────────────────
+    std::vector<uint8_t> wav(sizeof(WavHeader) + dataBytes);
+    std::memcpy(wav.data(), &header, sizeof(WavHeader));
 
-OpenaiCompatAsrEngine::OpenaiCompatAsrEngine() = default;
-
-OpenaiCompatAsrEngine::~OpenaiCompatAsrEngine() {
-    cancelled_ = true;
-    while (activeWorkers_.load() > 0) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    auto* samplePtr = reinterpret_cast<int16_t*>(wav.data() + sizeof(WavHeader));
+    for (size_t i = 0; i < frames; ++i) {
+        float s = pcm[i];
+        if (s < -1.0f) s = -1.0f;
+        if (s > 1.0f) s = 1.0f;
+        samplePtr[i] = static_cast<int16_t>(s * 32767.0f);
     }
+    return wav;
 }
 
-bool OpenaiCompatAsrEngine::Init(const Config& config) {
+size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
+    auto* response = static_cast<std::string*>(userp);
+    response->append(static_cast<char*>(contents), size * nmemb);
+    return size * nmemb;
+}
+
+// 进度回调：会话被取消时中断在途 HTTP 传输（返回非 0 中止请求）
+int CancelProgressCallback(void* clientp, curl_off_t, curl_off_t, curl_off_t,
+                           curl_off_t) {
+    auto* cancelled = static_cast<std::atomic<bool>*>(clientp);
+    return cancelled->load() ? 1 : 0;
+}
+
+// Base64 编码已提取到 utils/base64.h，此处复用公共实现。
+
+std::string BuildMultipartBody(const std::vector<uint8_t>& wavData,
+                               const std::string& model,
+                               const std::string& language,
+                               const std::string& boundary) {
+    std::ostringstream body;
+
+    body << "--" << boundary << "\r\n"
+         << "Content-Disposition: form-data; name=\"model\"\r\n\r\n"
+         << model << "\r\n";
+
+    if (!language.empty()) {
+        body << "--" << boundary << "\r\n"
+             << "Content-Disposition: form-data; name=\"language\"\r\n\r\n"
+             << language << "\r\n";
+    }
+
+    body << "--" << boundary << "\r\n"
+         << "Content-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\n"
+         << "Content-Type: audio/wav\r\n\r\n";
+
+    auto bodyStr = body.str();
+
+    std::string result;
+    result.reserve(bodyStr.size() + wavData.size() + boundary.size() + 8);
+    result += bodyStr;
+    result.append(reinterpret_cast<const char*>(wavData.data()), wavData.size());
+    result += "\r\n--" + boundary + "--\r\n";
+
+    return result;
+}
+
+} // namespace
+
+// ── OpenaiAsrSession ─────────────────────────────────────────
+
+OpenaiAsrSession::OpenaiAsrSession(const AsrEngine::Config& config,
+                                   AsrSession::ErrorCallback errorCb,
+                                   uint64_t sessionId) {
+    state_->sessionId = sessionId;
+    errorCb_ = std::move(errorCb);
+
     apiEndpoint_ = config.apiEndpoint;
     apiKey_ = config.apiKey;
-    modelName_ = config.modelName;
+    authScheme_ = config.authScheme.empty() ? "bearer" : config.authScheme;
+    modelName_ = config.modelName.empty() ? "whisper-1" : config.modelName;
     language_ = config.language;
-    apiFormat_ = config.apiFormat;
-    authScheme_ = config.authScheme;
+    apiMode_ = config.apiMode.empty() ? "whisper" : config.apiMode;
 
-    if (apiEndpoint_.empty()) {
-        apiEndpoint_ = "https://api.openai.com/v1";
-    }
-    if (modelName_.empty()) {
-        modelName_ = "whisper-1";
-    }
-    if (language_.empty()) {
-        language_ = "zh";
-    }
-
-    // Log config (mask API key)
-    std::string maskedKey = apiKey_.empty() ? "(none)" :
-        apiKey_.substr(0, 8) + "..." + apiKey_.substr(apiKey_.size() - 4);
-    FCITX_INFO() << "[voice-input:openai] Init: endpoint=" << apiEndpoint_
-                 << " model=" << modelName_ << " language=" << language_
-                 << " apiKey=" << maskedKey;
-
-    // Validate: we need at least an API key
-    if (apiKey_.empty()) {
-        FCITX_ERROR() << "[voice-input:openai] API key not configured";
-        return false;
-    }
-
-    return true;
+    FCITX_DEBUG() << "[voice-input:openai] Init session=" << sessionId
+                 << " endpoint=" << apiEndpoint_
+                 << " model=" << modelName_;
 }
 
-void OpenaiCompatAsrEngine::Start() {
-    pcmBuffer_.clear();
-    FCITX_DEBUG() << "[voice-input:openai] Start (buffer cleared)";
+void OpenaiAsrSession::StartWorker() {
+    // OpenAI doesn't start the worker until End()
 }
 
-void OpenaiCompatAsrEngine::FeedAudio(const float* pcm, size_t frames) {
+OpenaiAsrSession::~OpenaiAsrSession() {
+    Cancel();
+    JoinWithTimeout(5s);
+}
+
+void OpenaiAsrSession::FeedAudio(const float* pcm, size_t frames) {
+    if (state_->cancelled) return;
+    std::lock_guard<std::mutex> lock(bufferMutex_);
     pcmBuffer_.insert(pcmBuffer_.end(), pcm, pcm + frames);
-    float durSec = pcmBuffer_.size() / 16000.0f;
-    if (static_cast<int>(pcmBuffer_.size()) % 16000 < static_cast<int>(frames)) {
-        FCITX_DEBUG() << "[voice-input:openai] FeedAudio: buffer=" << pcmBuffer_.size()
-                      << " frames (" << durSec << "s)";
-    }
 }
 
-void OpenaiCompatAsrEngine::Stop() {
-    if (pcmBuffer_.empty()) {
-        FCITX_WARN() << "[voice-input:openai] Stop with empty buffer — no audio to transcribe";
-        if (resultCb_) {
-            resultCb_("", true);
-        }
-        return;
+void OpenaiAsrSession::End() {
+    state_->finished = true;
+    std::vector<float> buffer;
+    {
+        std::lock_guard<std::mutex> lock(bufferMutex_);
+        if (pcmBuffer_.empty()) return;
+        buffer.swap(pcmBuffer_);
     }
-
-    float durSec = pcmBuffer_.size() / 16000.0f;
-    FCITX_INFO() << "[voice-input:openai] Stop: " << pcmBuffer_.size()
-                 << " frames (" << durSec << "s), starting transcription";
-
-    // Detached worker: Stop() never blocks the caller (previously it joined
-    // the HTTP thread here, freezing Fcitx5 for up to the curl timeout).
-    // Audio moves in with the lambda, so concurrent workers never touch
-    // pcmBuffer_; a ticket lock keeps execution strictly FIFO.
-    std::thread([this, audio = std::move(pcmBuffer_)]() mutable {
-        activeWorkers_.fetch_add(1);
-        int ticket;
-        {
-            std::lock_guard<std::mutex> lock(ticketMutex_);
-            ticket = nextTicket_++;
-        }
-        {
-            std::unique_lock<std::mutex> lock(ticketMutex_);
-            ticketCv_.wait(lock, [this, ticket] { return ticket == servedTicket_; });
-        }
-        TranscribeWorker(std::move(audio));
-        {
-            std::lock_guard<std::mutex> lock(ticketMutex_);
-            servedTicket_++;
-            ticketCv_.notify_all();
-        }
-        activeWorkers_.fetch_sub(1);
-    }).detach();
+    // 用 shared_from_this 保活会话：worker 线程可能因慢网络在 JoinWithTimeout
+    // 超时后被 detach，此时会话对象仍必须存活，否则成员访问构成 use-after-free。
+    auto self = std::static_pointer_cast<OpenaiAsrSession>(shared_from_this());
+    workerThread_ = std::make_unique<std::thread>(
+        [self, buf = std::move(buffer)]() mutable {
+            self->TranscribeWorker(std::move(buf));
+        });
 }
 
-void OpenaiCompatAsrEngine::TranscribeWorker(std::vector<float> audio) {
-    auto finishEmpty = [this]() {
-        if (resultCb_) {
-            resultCb_("", true);
+void OpenaiAsrSession::Cancel() {
+    state_->cancelled = true;
+}
+
+void OpenaiAsrSession::JoinWithTimeout(std::chrono::milliseconds timeout) {
+    if (workerThread_ && workerThread_->joinable()) {
+        auto start = std::chrono::steady_clock::now();
+        while (std::chrono::steady_clock::now() - start < timeout) {
+            std::this_thread::sleep_for(10ms);
+            if (!workerThread_->joinable()) {
+                workerThread_->join();
+                return;
+            }
         }
-    };
+        FCITX_WARN() << "[voice-input:openai] Join timeout session="
+                     << state_->sessionId;
+        workerThread_->detach();
+    }
+    workerThread_.reset();
+}
 
-    size_t audioFrames = audio.size();
-    float audioDurSec = audioFrames / 16000.0f;
-    FCITX_INFO() << "[voice-input:openai] TranscribeWorker: processing "
-                 << audioFrames << " frames (" << audioDurSec << "s)";
+void OpenaiAsrSession::TranscribeWorker(std::vector<float> pcm) {
+    auto state = state_; // capture shared_ptr
 
-    if (cancelled_) {
-        FCITX_INFO() << "[voice-input:openai] Cancelled before WAV encoding";
+    // Build WAV
+    std::vector<uint8_t> wavData = FloatPcmToWav(pcm.data(), pcm.size());
+
+    bool isChatMode = (apiMode_ == "chat");
+
+    std::string endpoint = apiEndpoint_;
+    if (!endpoint.empty() && endpoint.back() != '/') {
+        endpoint += '/';
+    }
+    endpoint += isChatMode ? "chat/completions" : "audio/transcriptions";
+
+    CURL* curl = curl_easy_init();
+    if (!curl) {
+        if (errorCb_) errorCb_("Failed to init curl");
+        if (resultCb_) resultCb_("", true, state->sessionId);
         return;
     }
 
-    // Encode to WAV
-    auto encodeStart = std::chrono::steady_clock::now();
-    std::vector<uint8_t> wavData = FloatPcmToWav(audio.data(), audio.size());
-    auto encodeEnd = std::chrono::steady_clock::now();
-    auto encodeUs = std::chrono::duration_cast<std::chrono::microseconds>(encodeEnd - encodeStart).count();
-    FCITX_DEBUG() << "[voice-input:openai] WAV encoding: " << wavData.size()
-                  << " bytes in " << encodeUs << "us (" << (encodeUs / 1000) << "ms)";
+    struct curl_slist* headers = nullptr;
+    std::string postData;
+    std::string multipartBody;
+    std::string contentType;
 
-    if (cancelled_) {
-        FCITX_INFO() << "[voice-input:openai] Cancelled before HTTP request";
-        return;
-    }
+    if (isChatMode) {
+        // ── Bailian/Chat 模式 ──
+        // WAV → base64 data URI
+        std::string b64 = Base64Encode(wavData.data(), wavData.size());
+        std::string dataUri = "data:audio/wav;base64," + b64;
 
-    // Make HTTP request
-    auto httpStart = std::chrono::steady_clock::now();
-    std::string response = DoHttpRequest(wavData);
-    auto httpEnd = std::chrono::steady_clock::now();
-    auto httpMs = std::chrono::duration_cast<std::chrono::milliseconds>(httpEnd - httpStart).count();
+        // Build JSON payload
+        Json::Value msgContent;
+        msgContent["type"] = "input_audio";
+        msgContent["input_audio"]["data"] = dataUri;
 
-    if (cancelled_) {
-        FCITX_INFO() << "[voice-input:openai] Cancelled after HTTP request";
-        return;
-    }
+        Json::Value userMsg;
+        userMsg["role"] = "user";
+        userMsg["content"].append(msgContent);
 
-    FCITX_INFO() << "[voice-input:openai] HTTP response: " << response.size()
-                 << " bytes in " << httpMs << "ms";
+        Json::Value body;
+        body["model"] = modelName_;
+        body["messages"].append(userMsg);
+        body["stream"] = false;
 
-    if (response.empty()) {
-        FCITX_ERROR() << "[voice-input:openai] Empty response from API";
-        if (errorCb_) {
-            errorCb_("Empty response from API");
+        Json::Value asrOpts;
+        asrOpts["enable_itn"] = true;
+        if (!language_.empty() && language_ != "auto") {
+            body["asr_options"]["language"] = language_;
         }
-        finishEmpty();
+        body["asr_options"] = asrOpts;
+
+        Json::StreamWriterBuilder builder;
+        builder["indentation"] = "";
+        postData = Json::writeString(builder, body);
+
+        contentType = "Content-Type: application/json";
+        headers = curl_slist_append(headers, contentType.c_str());
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postData.c_str());
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(postData.size()));
+    } else {
+        // ── Whisper 模式 ──
+        // language=auto 不发送（SiliconFlow 等端点严格校验，未知/非法字段会 400）
+        const std::string language = (language_ == "auto") ? "" : language_;
+        std::string boundary = "----VoiceInputFormBoundary" + std::to_string(time(nullptr));
+        multipartBody = BuildMultipartBody(wavData, modelName_, language, boundary);
+        contentType = "Content-Type: multipart/form-data; boundary=" + boundary;
+        headers = curl_slist_append(headers, contentType.c_str());
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, multipartBody.c_str());
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(multipartBody.size()));
+
+        FCITX_DEBUG() << "[voice-input:openai] Request endpoint=" << endpoint
+                       << " model=" << modelName_
+                       << " language=" << (language_.empty() ? "auto" : language_)
+                       << " audio_frames=" << pcm.size()
+                       << " wav_bytes=" << wavData.size()
+                       << " body_size=" << multipartBody.size();
+    }
+
+    curl_easy_setopt(curl, CURLOPT_URL, endpoint.c_str());
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_POST, 1L);
+
+    if (!apiKey_.empty()) {
+        // Auth header depends on the provider: OpenAI uses Bearer, MiMo api-key.
+        std::string authHeader;
+        if (authScheme_ == "api-key") {
+            authHeader = "api-key: " + apiKey_;
+        } else {
+            authHeader = "Authorization: Bearer " + apiKey_;
+        }
+        headers = curl_slist_append(headers, authHeader.c_str());
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    }
+
+    std::string response;
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "fcitx5-voice-input/0.1.0");
+    // Cancel() 后立即中断在途传输，避免 JoinWithTimeout 超时 detach
+    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+    curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, CancelProgressCallback);
+    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &state->cancelled);
+
+    CURLcode res = curl_easy_perform(curl);
+
+    long httpCode = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
+    FCITX_DEBUG() << "[voice-input:openai] Response HTTP=" << httpCode
+                   << " body_len=" << response.size();
+
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+
+    if (state->cancelled) {
+        FCITX_DEBUG() << "[voice-input:openai] Cancelled session=" << state->sessionId;
+        return;
+    }
+
+    if (res != CURLE_OK) {
+        FCITX_ERROR() << "[voice-input:openai] HTTP request failed: " << curl_easy_strerror(res);
+        if (errorCb_) errorCb_("OpenAI request failed: " + std::string(curl_easy_strerror(res)));
+        if (resultCb_) resultCb_("", true, state->sessionId);
         return;
     }
 
     // Parse JSON response
-    Json::Value json;
-    Json::Reader reader;
-    if (!reader.parse(response, json)) {
-        FCITX_ERROR() << "[voice-input:openai] JSON parse error: "
-                       << reader.getFormattedErrorMessages()
-                       << " response=" << response.substr(0, 200);
-        if (errorCb_) {
-            errorCb_("JSON parse error");
-        }
-        finishEmpty();
-        return;
-    }
-
-    // Check for error
-    if (json.isMember("error")) {
-        std::string errMsg = json["error"].get("message", Json::Value("unknown error")).asString();
-        FCITX_ERROR() << "[voice-input:openai] API error: " << errMsg;
-        if (errorCb_) {
-            errorCb_("API error: " + errMsg);
-        }
-        finishEmpty();
-        return;
-    }
-
     std::string text;
-    if (apiFormat_ == "chat") {
-        // Chat Completions: choices[0].message.content
-        if (json.isMember("choices") && json["choices"].isArray()
-            && !json["choices"].empty()) {
-            text = json["choices"][0]
-                       .get("message", Json::Value(Json::objectValue))
-                       .get("content", Json::Value(""))
-                       .asString();
+    try {
+        Json::Value json;
+        Json::Reader reader;
+        if (reader.parse(response, json)) {
+            if (isChatMode) {
+                // Chat mode: choices[0].message.content
+                const auto& choices = json["choices"];
+                if (choices.isArray() && choices.size() > 0) {
+                    text = choices[0]["message"]["content"].asString();
+                }
+                if (text.empty()) {
+                    text = json.get("error", Json::Value(""))["message"].asString();
+                }
+            } else {
+                // Whisper mode: response.text
+                text = json.get("text", json.get("error", Json::Value(""))).asString();
+            }
         }
-    } else {
-        // Whisper: text
-        text = json.get("text", Json::Value("")).asString();
+    } catch (...) {
+        // ignore parse errors
     }
-    FCITX_INFO() << "[voice-input:openai] transcript: \""
-                 << text << "\" (" << text.size() << " chars)";
-    if (resultCb_) {
-        resultCb_(text, true);
+
+    if (text.empty()) {
+        FCITX_WARN() << "[voice-input:openai] Empty response";
+        if (resultCb_) resultCb_("", true, state->sessionId);
+        return;
     }
+
+    text.erase(0, text.find_first_not_of(" \t\n\r"));
+    text.erase(text.find_last_not_of(" \t\n\r") + 1);
+
+    // 转写文本属敏感个人信息，降级为 DEBUG（默认 INFO 级别不落盘内容）
+    FCITX_DEBUG() << "[voice-input:openai] final session=" << state->sessionId
+                  << " \"" << text << "\"";
+    if (resultCb_) resultCb_(text, true, state->sessionId);
 }
 
-std::string OpenaiCompatAsrEngine::DoHttpRequest(const std::vector<uint8_t>& wavData) {
-    CURL* curl = curl_easy_init();
-    if (!curl) {
-        FCITX_ERROR() << "[voice-input:openai] Failed to initialize libcurl";
-        if (errorCb_) errorCb_("Failed to initialize libcurl");
-        return "";
+// ── OpenaiAsrEngine ──────────────────────────────────────────
+
+bool OpenaiAsrEngine::Init(const Config& config) {
+    config_ = config;
+    return true;
+}
+
+std::shared_ptr<AsrSession> OpenaiAsrEngine::StartSession() {
+    uint64_t sid;
+    {
+        std::lock_guard<std::mutex> lock(sessionsMutex_);
+        sid = nextSessionId_++;
     }
 
-    std::string response;
-    struct curl_slist* headers = nullptr;
+    auto session = std::make_shared<OpenaiAsrSession>(
+        config_, errorCb_, sid);
+    session->SetResultCallback(resultCb_);
+    if (!session->GetState()->finished)
+        session->StartWorker();
 
-    // Auth header depends on the provider: OpenAI uses Bearer, MiMo api-key.
-    auto appendAuthHeader = [&]() {
-        std::string auth;
-        if (authScheme_ == "api-key") {
-            auth = "api-key: " + apiKey_;
-        } else {
-            auth = "Authorization: Bearer " + apiKey_;
-        }
-        headers = curl_slist_append(headers, auth.c_str());
-    };
-
-    // Strip trailing slash from endpoint
-    std::string endpoint = apiEndpoint_;
-    if (!endpoint.empty() && endpoint.back() == '/') endpoint.pop_back();
-
-    // Curl options common to both formats
-    auto setupCurl = [&]() {
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
-        curl_easy_setopt(curl, CURLOPT_USERAGENT, "fcitx5-voice-input/" VOICE_INPUT_VERSION);
-        curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION,
-                         +[](void* p, curl_off_t, curl_off_t, curl_off_t, curl_off_t) -> int {
-                             return static_cast<OpenaiCompatAsrEngine*>(p)->cancelled_ ? 1 : 0;
-                         });
-        curl_easy_setopt(curl, CURLOPT_XFERINFODATA, this);
-        curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
-    };
-
-    if (apiFormat_ == "chat") {
-        // ── Chat Completions format ────────────────────────────────
-        std::string url = endpoint + "/chat/completions";
-        FCITX_INFO() << "[voice-input:openai] POST " << url
-                     << " (chat, wav=" << wavData.size() << " bytes)";
-
-        std::string audioBase64 = Base64Encode(wavData.data(), wavData.size());
-
-        Json::Value body;
-        body["model"] = modelName_;
-        Json::Value msg;
-        msg["role"] = "user";
-        Json::Value content;
-        content["type"] = "input_audio";
-        content["input_audio"]["data"] = "data:audio/wav;base64," + audioBase64;
-        msg["content"].append(content);
-        body["messages"].append(msg);
-        if (!language_.empty()) {
-            body["asr_options"]["language"] = language_;
-        }
-
-        Json::StreamWriterBuilder wb;
-        wb["indentation"] = "";
-        std::string jsonBody = Json::writeString(wb, body);
-
-        headers = curl_slist_append(headers, "Content-Type: application/json");
-        appendAuthHeader();
-
-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jsonBody.c_str());
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(jsonBody.size()));
-        setupCurl();
-    } else {        // ── Whisper format (multipart) ─────────────────────────────
-        std::string url = endpoint + "/audio/transcriptions";
-        FCITX_INFO() << "[voice-input:openai] POST " << url
-                     << " (whisper, wav=" << wavData.size() << " bytes)";
-
-        curl_mime* mime = curl_mime_init(curl);
-        curl_mimepart* part;
-
-        part = curl_mime_addpart(mime);
-        curl_mime_name(part, "file");
-        curl_mime_data(part, reinterpret_cast<const char*>(wavData.data()), wavData.size());
-        curl_mime_filename(part, "audio.wav");
-        curl_mime_type(part, "audio/wav");
-
-        part = curl_mime_addpart(mime);
-        curl_mime_name(part, "model");
-        curl_mime_data(part, modelName_.c_str(), CURL_ZERO_TERMINATED);
-
-        part = curl_mime_addpart(mime);
-        curl_mime_name(part, "language");
-        curl_mime_data(part, language_.c_str(), CURL_ZERO_TERMINATED);
-
-        part = curl_mime_addpart(mime);
-        curl_mime_name(part, "response_format");
-        curl_mime_data(part, "json", CURL_ZERO_TERMINATED);
-
-        appendAuthHeader();
-
-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-        curl_easy_setopt(curl, CURLOPT_MIMEPOST, mime);
-        setupCurl();
-
-        // Perform and cleanup mime before checking result
-        CURLcode res = curl_easy_perform(curl);
-        long httpCode = 0;
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
-        curl_mime_free(mime);
-        curl_slist_free_all(headers);
-        curl_easy_cleanup(curl);
-
-        if (res == CURLE_ABORTED_BY_CALLBACK) return "";
-        if (res != CURLE_OK) {
-            FCITX_ERROR() << "[voice-input:openai] HTTP failed: " << curl_easy_strerror(res);
-            if (errorCb_) errorCb_("HTTP request failed");
-            return "";
-        }
-        if (httpCode != 200) {
-            std::string errMsg = "HTTP " + std::to_string(httpCode);
-            if (!response.empty()) {
-                Json::Value ej; Json::Reader er;
-                if (er.parse(response, ej) && ej.isMember("error"))
-                    errMsg += ": " + ej["error"].get("message", Json::Value(response)).asString();
-                else errMsg += ": " + response;
-            }
-            FCITX_ERROR() << "[voice-input:openai] API error: " << errMsg;
-            if (errorCb_) errorCb_(errMsg);
-            return "";
-        }
-        return response;
+    {
+        std::lock_guard<std::mutex> lock(sessionsMutex_);
+        sessions_[sid] = session;
     }
-
-    // ── Common perform + error handling (chat path) ────────────────
-    CURLcode res = curl_easy_perform(curl);
-    long httpCode = 0;
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
-
-    if (res == CURLE_ABORTED_BY_CALLBACK) return "";
-    if (res != CURLE_OK) {
-        FCITX_ERROR() << "[voice-input:openai] HTTP failed: " << curl_easy_strerror(res);
-        if (errorCb_) errorCb_("HTTP request failed");
-        return "";
-    }
-    if (httpCode != 200) {
-        std::string errMsg = "HTTP " + std::to_string(httpCode);
-        if (!response.empty()) {
-            Json::Value ej; Json::Reader er;
-            if (er.parse(response, ej) && ej.isMember("error"))
-                errMsg += ": " + ej["error"].get("message", Json::Value(response)).asString();
-            else errMsg += ": " + response;
-        }
-        FCITX_ERROR() << "[voice-input:openai] API error: " << errMsg;
-        if (errorCb_) errorCb_(errMsg);
-        return "";
-    }
-    return response;
+    return session;
 }
 
 } // namespace fcitx

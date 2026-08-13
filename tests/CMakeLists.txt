@@ -2,7 +2,7 @@ add_executable(voice_input_tests
     test_main.cpp
     ../src/addon/vad/vad.cpp
     ../src/addon/vad/silero_vad.cpp
-    ../src/addon/asr/wav_encoder.cpp)
+    ../src/addon/asr/utils/base64.cpp)
 
 target_include_directories(voice_input_tests PRIVATE
     ../src/addon

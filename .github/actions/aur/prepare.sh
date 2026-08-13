@@ -4,23 +4,23 @@ set -euo pipefail
 PKG="fcitx5-voice-input"
 TAG="${GITHUB_REF_NAME}"
 
-# Only build AUR packages on tag pushes (v*)
-if [[ "${TAG}" != v* ]]; then
-  echo "Skipping AUR build: not a tag push (${TAG})"
-  echo "tarball=" >> "${GITHUB_OUTPUT}"
-  echo "pkgbuild=" >> "${GITHUB_OUTPUT}"
-  exit 0
+# Derive version: use tag if it's a release tag, otherwise use git SHA.
+# pkgver only allows: alphanumeric, period, underscore, plus.
+if [[ "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    VER="${TAG#v}"
+else
+    VER="0.0.0+r$(git rev-parse --short HEAD)"
 fi
 
-VER="${TAG#v}"
 mkdir -p dist/aur/src
 
-# Source tarball with submodules (top dir = pkgname for makepkg)
-mkdir -p "${PKG}"
-git archive HEAD | tar -x -C "${PKG}"
-cp -a third_party "${PKG}/"
-tar -czf "dist/aur/src/${PKG}-${VER}.tar.gz" "${PKG}"
-rm -rf "${PKG}"
+# Source tarball with submodules (top dir = pkgname-pkgver, matching GitHub archive convention)
+SRC_DIR="${PKG}-${VER}"
+mkdir -p "${SRC_DIR}"
+git archive HEAD | tar -x -C "${SRC_DIR}"
+cp -a third_party "${SRC_DIR}/"
+tar -czf "dist/aur/src/${SRC_DIR}.tar.gz" "${SRC_DIR}"
+rm -rf "${SRC_DIR}"
 
 # PKGBUILD with version and sha256
 SHA256=$(sha256sum "dist/aur/src/${PKG}-${VER}.tar.gz" | cut -d' ' -f1)

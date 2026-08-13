@@ -20,18 +20,15 @@
 
 </div>
 
-**fcitx5-voice-input** 是一个 Fcitx5 语音输入插件。通过 PulseAudio（或 PipeWire fallback）捕获音频，使用 Silero ONNX VAD 检测人声分段，通过 OpenAI 兼容 API 进行语音识别。
+**fcitx5-voice-input** 是一个 Fcitx5 语音输入插件。通过 PulseAudio（或 PipeWire fallback）捕获音频，使用 Silero ONNX VAD 检测人声分段，通过 OpenAI 兼容 API 或火山引擎豆包流式语音进行识别。
 
 ## 功能
 
-- 通过 OpenAI 兼容 API 进行语音识别（Whisper、Groq、SiliconFlow 等）
-- **小米 MiMo ASR**（`mimo-v2.5-asr`）原生支持
-- **Chat Completions API 格式**（`/chat/completions` + JSON Base64），兼容不支持 Whisper 端点的服务商
-- **两种录音模式**：
-  - **VAD 自动分段**：Silero ONNX VAD 自动检测语音边界（免按键）
-  - **Push-to-Talk**：按住热键（默认 Right Ctrl）录音，松开提交（隐私友好）
-- 从 API 获取可用模型列表，下拉选择
-- LLM 后处理（纠错 / 翻译 / 格式化）
+- 中文语音输入（OpenAI Whisper API / 兼容服务、火山引擎豆包流式语音，或小米 MiMo ASR）
+- Silero ONNX VAD 自动分段录音（免按键）
+- 可选按住说话（PTT）模式：按住热键录音，松开上屏
+- 说话过程中实时显示识别中间结果（火山引擎后端支持）
+- 队列管道架构：音频采集 → VAD 分段 → ASR 识别 → EventDispatcher 上屏
 - 通过 `fcitx5-configtool` 图形化配置
 - 窗口快速切换自动延迟停止，防止误停
 
@@ -43,59 +40,122 @@
 
 ### 1. 安装
 
+#### AUR (Arch Linux)
+
+```bash
+yay -S fcitx5-voice-input
+# 或
+paru -S fcitx5-voice-input
+# 或手动构建
+git clone https://aur.archlinux.org/fcitx5-voice-input.git
+cd fcitx5-voice-input
+makepkg -si
+```
+
 #### 手动编译安装
 
 见下方 [编译构建](#编译构建)。
-
-#### Fedora RPM
-
-```bash
-rpmbuild -ba fcitx5-voice-input.spec
-sudo dnf install ~/rpmbuild/RPMS/x86_64/fcitx5-voice-input-*.rpm
-```
 
 ### 2. 配置
 
 安装后，打开 `fcitx5-configtool`，在 Input Method 列表中找到 **Voice Input** 并添加到输入法列表。
 
-然后在 Addon 配置中找到 **VoiceInput**，配置以下关键项：
+然后在 Addon 配置中找到 **VoiceInput**：
+
+#### 主配置
 
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
-| `ASR Backend` | ASR 后端（`openai` / `mimo`） | `openai` |
-| `API Format` | API 格式：Multipart Form 或 JSON Base64 | `whisper` |
-| `Recording Mode` | 录音模式：VAD 自动分段或 Push-to-Talk | `vad` |
-| `Push-to-Talk Hotkey` | PTT 模式热键 | Right Ctrl |
-| `OpenAI API Endpoint` | API 地址 | `https://api.openai.com/v1` |
-| `OpenAI API Key` | API Key | **（必填）** |
-| `Voice Model` | 模型名 | `whisper-1` |
-| `Output Language` | 输出语言，留空自动检测 | （空） |
-| `VAD Threshold (%)` | VAD 灵敏度 (0-100)，越高越不易触发 | `50` |
-| `Silence Threshold (ms)` | 静音多久结束说话 (ms) | `800` |
+| `ActiveBackend` | ASR 后端 | `openai` |
+| `VADThreshold` | VAD 灵敏度 (0-100)，越高越不易触发 | `20` |
+| `SilenceThresholdMs` | 静音多久结束说话 (ms) | `800` |
+| `StartFrames` | 连续多少帧判定说话开始 | `2` |
+| `PreRollMs` | 说话开始前预取音频 (ms) | `300` |
+| `MinSpeechMs` | 最短有效语音段 (ms) | `300` |
+| `MaxSpeechMs` | 最长语音段后强制分段 (ms) | `30000` |
 
-**API Key 配置**：在 `OpenAI API Key` 中填入你的 API Key。支持所有 OpenAI 兼容服务，如：
+在下拉框选择后端后，点击齿轮按钮 ⚙ 打开对应后端的配置页。
+
+#### OpenAI 后端（子配置）
+
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `BaseUrl` | API 地址 | `https://api.openai.com/v1` |
+| `ApiKey` | API Key | **（必填）** |
+| `Model` | 模型名 | `whisper-1` |
+| `Language` | 输出语言 | `auto`（English/中文） |
+| `ApiMode` | API 模式：`whisper`（标准 Whisper API）、`chat`（百炼 Chat Completions）或 `realtime`（GPT Realtime 流式实时转录） | `whisper` |
+| `CommitIntervalMs` | Realtime 模式下的周期性提交间隔 (ms)，长句无停顿也能持续出增量 | `5000` |
+| `LLMEnabled` | LLM 后处理 | `false` |
+| `LLMModel` | 后处理 LLM 模型 | （空） |
+| `LLMSystemPrompt` | 后处理系统提示词 | （空） |
+| `LLMStream` | LLM 流式输出 | `true` |
+| `AutoCommit` | 无 LLM 时自动上屏 | `true` |
+
+设置 `ActiveBackend=openai`，点击齿轮按钮，然后填入您的 API Key。支持所有 OpenAI 兼容服务，如：
 
 - [OpenAI](https://platform.openai.com/) — `https://api.openai.com/v1`
 - [Groq](https://console.groq.com/) — `https://api.groq.com/openai/v1`
 - [硅基流动 (SiliconFlow)](https://siliconflow.cn/) — `https://api.siliconflow.cn/v1`
-- [小米 MiMo](https://mimo.mi.com/) — ASR Backend 选 `Xiaomi MiMo ASR`
+- [阿里云百炼 (DashScope)](https://help.aliyun.com/zh/model-studio/qwen-asr-api-reference) — `https://dashscope.aliyuncs.com/compatible-mode/v1`
 
-**获取可用模型**：填写 Endpoint 和 API Key 后，勾选 **Fetch Available Models** → Apply → 重新打开配置即可从下拉框选择模型。
+  **注意：** 阿里云百炼使用的 `qwen3-asr-flash` 模型不走标准的 Whisper API，需要通过 Chat Completions 接口调用。使用时需将 `ApiMode` 设为 `chat`，并补充对应的 DashScope API Key。配置示例：
+  ```
+  BaseUrl=https://dashscope.aliyuncs.com/compatible-mode/v1
+  ApiKey=your_dashscope_api_key
+  Model=qwen3-asr-flash
+  ApiMode=chat
+  Language=zh
+  ```
+  百炼 ASR 的具体接口文档请参考[阿里云官方文档](https://help.aliyun.com/zh/model-studio/qwen-asr-api-reference)。
+
+  **Realtime 流式实时转录（可选）：** 将 `ApiMode` 设为 `realtime`，即可通过 OpenAI Realtime 转录会话实现**边说边出**增量识别结果（实时刷入候选框 preedit，说话结束提交上屏）。使用 OpenAI 官方账号时，模型推荐 `gpt-live-transcribe`（官方推荐，真正连续增量）或 `gpt-realtime-whisper`（兼容备选）。配置示例：
+  ```
+  BaseUrl=https://api.openai.com/v1
+  ApiKey=your_openai_api_key
+  Model=gpt-live-transcribe
+  ApiMode=realtime
+  Language=zh
+  ```
+  **注意：** Realtime 模式需要支持 WebSocket 的连接端点，且 `gpt-live-transcribe` / `gpt-realtime-whisper` 需付费 Tier 账号（Free 不支持）。音频以 24kHz 发送（插件会自动将采集的 16kHz 重采样到 24kHz）。
+
+  **小米 MiMo ASR（可选）：** `ActiveBackend` 选 `mimo` 可使用[小米 MiMo](https://mimo.mi.com/)（`mimo-v2.5-asr`）。MiMo 运行在 OpenAI 兼容引擎上，使用 `api-key` 认证与 Chat Completions 格式；端点和模型会自动归一化，只需在 OpenAI 子配置里填写小米的 API 密钥。
+
+#### 火山引擎豆包后端（子配置）
+
+设置 `ActiveBackend=volcengine`，点击齿轮按钮打开火山引擎配置页。
+
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `Endpoint` | WebSocket 地址 | `wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async` |
+| `AuthMode` | 认证模式：`api_key` 或 `app_access_key` | `api_key` |
+| `ApiKey` | API Key（新版控制台） | **api_key 模式必填** |
+| `AppKey` | App Key（旧版控制台） | **app_access_key 模式必填** |
+| `AccessKey` | Access Key（旧版控制台） | **app_access_key 模式必填** |
+| `ResourceId` | 资源 ID | `volc.seedasr.sauc.duration` |
+| `ChunkMs` | 单包音频长度 (ms) | `200` |
+| `EnableITN` | 启用 ITN 文本规范化 | `true` |
+| `EnablePunc` | 启用标点符号 | `true` |
+| `EnableDDC` | 启用语义顺滑 | `false` |
+| `EnableNonstream` | 启用二次识别 | `true` |
+| `EndWindowMs` | 服务端判停窗口 (ms) | `800` |
+
+火山引擎需要先在[火山引擎控制台](https://console.volcengine.com/)购买语音识别资源。资源 ID 取决于模型和购买方式：
+
+- 模型 2.0 小时版：`volc.seedasr.sauc.duration`
+- 模型 2.0 并发版：`volc.seedasr.sauc.concurrent`
+- 模型 1.0 小时版：`volc.bigasr.sauc.duration`
+- 模型 1.0 并发版：`volc.bigasr.sauc.concurrent`
+
+**故障排查：** 如果识别失败，在插件日志中查找 `X-Tt-Logid`，并提交给火山引擎技术支持。
 
 ### 3. 使用
 
-**VAD 模式（默认）：**
 1. 切换到 **Voice Input** 输入法
 2. 开始说话，VAD 自动检测人声并录音
-3. 停止说话（默认 800ms 静音超时），自动发送 ASR 识别
-4. 识别结果自动上屏
+3. 使用**火山引擎**后端时，说话过程中会实时显示识别中间结果
+4. 停止说话（默认 800ms 静音超时），最终识别结果自动上屏
 5. 保持语音输入模式，继续说话可连续识别
-
-**Push-to-Talk 模式：**
-1. 切换到 **Voice Input** 输入法
-2. 按住热键（默认 Right Ctrl）— 开始录音
-3. 松开热键 — 音频发送 ASR 识别
-4. 识别结果自动上屏
 
 切换窗口时插件会自动延迟 200ms 停止，快速切回会取消停止，避免不必要的重启。
 
@@ -107,14 +167,13 @@ sudo dnf install ~/rpmbuild/RPMS/x86_64/fcitx5-voice-input-*.rpm
 - `libpulse-simple` — PulseAudio 音频捕获（优先）
 - `libpipewire-0.3` — PipeWire 音频捕获（fallback）
 - `jsoncpp` — JSON 解析
-- `libcurl` — HTTP 客户端（ASR 必需）
+- `libcurl` — HTTP/WebSocket 客户端（>= 7.86.0，ASR 必需）
+- `zlib` — Gzip 压缩（火山引擎后端必需）
 - `onnxruntime` — Silero VAD ONNX Runtime
 
-> **Arch Linux:** `sudo pacman -S fcitx5 pulseaudio pipewire jsoncpp curl onnxruntime-cpu`
+> **Arch Linux:** `sudo pacman -S fcitx5 pulseaudio pipewire jsoncpp curl onnxruntime-cpu zlib`
 >
-> **Debian/Ubuntu:** `sudo apt install fcitx5 libpulse-dev libpipewire-0.3-dev libjsoncpp-dev libcurl4-openssl-dev libonnxruntime-dev`
->
-> **Fedora:** `sudo dnf install fcitx5-devel pipewire-devel pulseaudio-libs-devel jsoncpp-devel libcurl-devel onnxruntime-devel`
+> **Debian/Ubuntu:** `sudo apt install fcitx5 libpulse-dev libpipewire-0.3-dev libjsoncpp-dev libcurl4-openssl-dev libonnxruntime-dev zlib1g-dev`
 
 ### 编译
 
@@ -144,17 +203,20 @@ sudo cmake --install build --prefix /usr
 
 ## 注意事项
 
-- **API Key 安全**：API Key 明文存储在 fcitx5 配置文件中（`~/.config/fcitx5/conf/voiceinput.conf`），请注意文件权限
-- **网络要求**：云端 ASR 后端需要网络连接。本地 ASR 可通过 AsrEngine 接口后续扩展
-- **音频设备**：默认自动选择系统音频输入设备。如需指定，在下拉框中选择。仅支持输入源（Source），不支持 Monitor 源
-- **VAD 模型**：Silero VAD 模型通过 git submodule 分发（`third_party/silero-vad/`），编译时自动复制到安装目录。Push-to-Talk 模式不需要此模型
+- **API Key 安全**：API Key 明文存储在 `~/.config/fcitx5/conf/voiceinput-openai.conf` 和 `~/.config/fcitx5/conf/voiceinput-volcengine.conf` 中，请注意文件权限
+- **网络要求**：OpenAI 后端需要网络连接。本地 ASR 可通过 AsrEngine 接口后续扩展
+- **音频设备**：默认自动选择系统音频输入设备。如需指定，在 `AudioSource` 下拉框中选择。仅支持输入源（Source），不支持 Monitor 源
+- **VAD 模型**：Silero VAD 模型通过 git submodule 分发（`third_party/silero-vad/`），编译时自动复制到安装目录。构建前务必执行 `git submodule update --init --recursive`
 - **PipeWire 用户**：PulseAudio 后端也能在 pipewire-pulse 下正常工作，仅在 PulseAudio 完全不可用时 fallback 到 PipeWire 直连
+- **本地 ASR**：暂未实现。代码提供了 `AsrEngine` 抽象接口，后续可扩展本地引擎
 - **窗口切换**：快速切换窗口时插件使用延迟停止机制（200ms），不会频繁重启流水线。长时间切出后会自动停止
 
 ## 架构简介
 
 ```
-音频捕获线程 → FrameQueue → VAD Worker 线程 → UtteranceQueue → ASR Worker 线程 → ResultQueue → EventDispatcher → commitString
+音频捕获线程 → FrameQueue → VAD Worker 线程 → SpeechEventQueue → ASR Worker 线程 → ResultQueue → EventDispatcher → commitString
+
+SpeechEvent 类型: Begin（说话开始）→ Audio（32ms 帧，Pipeline 聚合到 200ms）→ End（静音）/ Cancel（语音太短丢弃）
 ```
 
 三个工作线程 + 主线程，通过 `ThreadSafeQueue` 连接各阶段。详见 [ARCHITECTURE.md](ARCHITECTURE.md)。
