@@ -28,6 +28,7 @@ public:
         std::string apiKey;
         std::string language = "zh";
         std::string apiFormat = "whisper"; // "whisper" or "chat"
+        std::string authScheme = "bearer"; // "bearer" or "api-key"
     };
 
     // Result callback — called from worker thread, caller must dispatch

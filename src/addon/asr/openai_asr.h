@@ -14,7 +14,7 @@ namespace fcitx {
 
 /**
  * ASR engine for OpenAI Whisper API and compatible providers
- * (Groq, Together AI, DeepSeek, etc.).
+ * (Groq, Together AI, DeepSeek, Xiaomi MiMo, etc.).
  *
  * User configures the endpoint, API key, and model name at runtime.
  * Audio is sent as a WAV file via multipart/form-data POST request.
@@ -44,7 +44,8 @@ private:
     std::string apiKey_;
     std::string modelName_;
     std::string language_;
-    std::string apiFormat_; // "whisper" or "chat"
+    std::string apiFormat_;  // "whisper" or "chat"
+    std::string authScheme_; // "bearer" or "api-key"
 
     // Audio buffer (accumulated during recording)
     std::vector<float> pcmBuffer_;

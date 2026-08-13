@@ -96,6 +96,7 @@ bool OpenaiCompatAsrEngine::Init(const Config& config) {
     modelName_ = config.modelName;
     language_ = config.language;
     apiFormat_ = config.apiFormat;
+    authScheme_ = config.authScheme;
 
     if (apiEndpoint_.empty()) {
         apiEndpoint_ = "https://api.openai.com/v1";
@@ -285,6 +286,17 @@ std::string OpenaiCompatAsrEngine::DoHttpRequest(const std::vector<uint8_t>& wav
     std::string response;
     struct curl_slist* headers = nullptr;
 
+    // Auth header depends on the provider: OpenAI uses Bearer, MiMo api-key.
+    auto appendAuthHeader = [&]() {
+        std::string auth;
+        if (authScheme_ == "api-key") {
+            auth = "api-key: " + apiKey_;
+        } else {
+            auth = "Authorization: Bearer " + apiKey_;
+        }
+        headers = curl_slist_append(headers, auth.c_str());
+    };
+
     // Strip trailing slash from endpoint
     std::string endpoint = apiEndpoint_;
     if (!endpoint.empty() && endpoint.back() == '/') endpoint.pop_back();
@@ -330,15 +342,13 @@ std::string OpenaiCompatAsrEngine::DoHttpRequest(const std::vector<uint8_t>& wav
         std::string jsonBody = Json::writeString(wb, body);
 
         headers = curl_slist_append(headers, "Content-Type: application/json");
-        std::string auth = "Authorization: Bearer " + apiKey_;
-        headers = curl_slist_append(headers, auth.c_str());
+        appendAuthHeader();
 
         curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jsonBody.c_str());
         curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(jsonBody.size()));
         setupCurl();
-    } else {
-        // ── Whisper format (multipart) ─────────────────────────────
+    } else {        // ── Whisper format (multipart) ─────────────────────────────
         std::string url = endpoint + "/audio/transcriptions";
         FCITX_INFO() << "[voice-input:openai] POST " << url
                      << " (whisper, wav=" << wavData.size() << " bytes)";
@@ -364,8 +374,7 @@ std::string OpenaiCompatAsrEngine::DoHttpRequest(const std::vector<uint8_t>& wav
         curl_mime_name(part, "response_format");
         curl_mime_data(part, "json", CURL_ZERO_TERMINATED);
 
-        std::string auth = "Authorization: Bearer " + apiKey_;
-        headers = curl_slist_append(headers, auth.c_str());
+        appendAuthHeader();
 
         curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
         curl_easy_setopt(curl, CURLOPT_MIMEPOST, mime);

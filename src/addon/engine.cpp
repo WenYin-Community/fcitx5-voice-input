@@ -17,7 +17,6 @@
 #include "engine.h"
 
 #include "asr/openai_asr.h"
-#include "asr/mimo_asr.h"
 #include "llm/llm_client.h"
 
 namespace fcitx {
@@ -364,17 +363,22 @@ void VoiceInputEngine::InitializeIfNeeded() {
     std::unique_ptr<AsrEngine> asr;
 
     if (backend == "mimo") {
-        // MiMo uses its own endpoint; fall back to default if user hasn't changed it
+        // MiMo runs on the OpenAI-compatible engine with api-key auth and
+        // chat format; normalize its defaults here.
         if (asrConfig.apiEndpoint.empty()
             || asrConfig.apiEndpoint == "https://api.openai.com/v1") {
             asrConfig.apiEndpoint = "https://api.xiaomimimo.com/v1";
         }
-        // Use MiMo default model instead of OpenAI's whisper-1
         if (asrConfig.modelName.empty() || asrConfig.modelName == "whisper-1") {
             asrConfig.modelName = "mimo-v2.5-asr";
             config_.openaiModel.setValue(asrConfig.modelName);
         }
-        auto mimo = std::make_unique<MiMoAsrEngine>();
+        if (asrConfig.language.empty()) {
+            asrConfig.language = "auto";
+        }
+        asrConfig.apiFormat = "chat";
+        asrConfig.authScheme = "api-key";
+        auto mimo = std::make_unique<OpenaiCompatAsrEngine>();
         if (mimo->Init(asrConfig)) {
             mimo->SetErrorCallback(
                 [this](const std::string& err) {
