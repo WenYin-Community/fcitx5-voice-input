@@ -95,7 +95,6 @@ void VoiceInputEngine::deactivate(const InputMethodEntry& entry,
     pttHeldKeyCode_ = 0;
     pttDelayedStopEvent_.reset();
     recording_.store(false);
-    levelTimer_.reset();
     ClearUI();
 
     delayedStopEvent_ = instance_->eventLoop().addTimeEvent(
@@ -180,23 +179,6 @@ void VoiceInputEngine::keyEvent(const InputMethodEntry& entry,
         if (!pttActive_) {
             pttActive_ = true;
             recording_.store(true);
-            // Start level update timer for PTT mode
-            if (!levelTimer_) {
-                levelTimer_ = instance_->eventLoop().addTimeEvent(
-                    CLOCK_MONOTONIC, 0, 200000,
-                    [this](EventSourceTime*, uint64_t) {
-                        if (!recording_.load()) {
-                            levelTimer_.reset();
-                            return true;
-                        }
-                        int lvl = audioLevel_.load();
-                        std::string bar;
-                        for (int i = 0; i < 10; i++)
-                            bar += (i < lvl) ? "█" : "░";
-                        SetStatus(std::string(_("Recording...")) + " [" + bar + "]");
-                        return true;
-                    });
-            }
             pipeline_->Start();
             SetStatus(_("Recording..."));
             FCITX_INFO() << "[voice-input] PTT pressed";
@@ -345,23 +327,6 @@ void VoiceInputEngine::InitializeIfNeeded() {
         [this](bool speaking) {
             if (speaking) {
                 recording_.store(true);
-                // Start level update timer (200ms interval)
-                if (!levelTimer_) {
-                    levelTimer_ = instance_->eventLoop().addTimeEvent(
-                        CLOCK_MONOTONIC, 0, 200000,
-                        [this](EventSourceTime*, uint64_t) {
-                            if (!recording_.load()) {
-                                levelTimer_.reset();
-                                return true;
-                            }
-                            int lvl = audioLevel_.load();
-                            std::string bar;
-                            for (int i = 0; i < 10; i++)
-                                bar += (i < lvl) ? "█" : "░";
-                            SetStatus(std::string(_("Recording...")) + " [" + bar + "]");
-                            return true;
-                        });
-                }
                 eventDispatcher_.schedule([this]() {
                     if (!activeIc_) return;
                     activeIc_->inputPanel().setPreedit(Text(" "));
@@ -377,6 +342,21 @@ void VoiceInputEngine::InitializeIfNeeded() {
     pipeline_->SetLevelCallback(
         [this](int level) {
             audioLevel_.store(level);
+        });
+
+    // Persistent level timer, created once on the main thread. All state it
+    // reads (recording_, audioLevel_) is atomic, so it never races with the
+    // VAD worker; the old per-session create/reset crossed threads.
+    levelTimer_ = instance_->eventLoop().addTimeEvent(
+        CLOCK_MONOTONIC, 0, 200000,
+        [this](EventSourceTime*, uint64_t) {
+            if (!recording_.load()) return true;
+            int lvl = audioLevel_.load();
+            std::string bar;
+            for (int i = 0; i < 10; i++)
+                bar += (i < lvl) ? "█" : "░";
+            SetStatus(std::string(_("Recording...")) + " [" + bar + "]");
+            return true;
         });
 
     pipeline_->Init(config_);
@@ -404,22 +384,36 @@ void VoiceInputEngine::InitializeIfNeeded() {
         }
         auto mimo = std::make_unique<MiMoAsrEngine>();
         if (mimo->Init(asrConfig)) {
+            mimo->SetErrorCallback(
+                [this](const std::string& err) {
+                    std::string msg = err;
+                    if (msg.size() > 60) msg = msg.substr(0, 60) + "...";
+                    SetStatus(std::string(_("Recognition failed: ")) + msg);
+                });
             asr = std::move(mimo);
             FCITX_INFO() << "[voice-input] Using MiMo ASR: "
                          << asrConfig.apiEndpoint
                          << " model=" << asrConfig.modelName;
         } else {
             FCITX_WARN() << "[voice-input] MiMo ASR init failed";
+            SetStatus(_("ASR not configured"));
         }
     } else {
         auto openai = std::make_unique<OpenaiCompatAsrEngine>();
         if (openai->Init(asrConfig)) {
+            openai->SetErrorCallback(
+                [this](const std::string& err) {
+                    std::string msg = err;
+                    if (msg.size() > 60) msg = msg.substr(0, 60) + "...";
+                    SetStatus(std::string(_("Recognition failed: ")) + msg);
+                });
             asr = std::move(openai);
             FCITX_INFO() << "[voice-input] Using OpenAI-compatible ASR: "
                          << config_.openaiEndpoint.value()
                          << " model=" << asrConfig.modelName;
         } else {
             FCITX_WARN() << "[voice-input] OpenAI ASR init failed";
+            SetStatus(_("ASR not configured"));
         }
     }
 
