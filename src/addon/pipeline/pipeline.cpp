@@ -72,16 +72,6 @@ void Pipeline::SetAsrEngine(std::unique_ptr<AsrEngine> engine) {
                     uint64_t gen = generation_.load();
                     uint64_t uid = ++utteranceCounter_;
 
-                    // Drain stale LLM-refined leftovers from previous utterance
-                    AsrResult stale;
-                    while (resultQueue_.TryPop(stale)) {
-                        if (stale.isLLMRefined) {
-                            FCITX_DEBUG() << "[voice-input] Drained stale LLM result: "
-                                         << "uid=" << stale.utteranceId
-                                         << " expect=" << uid;
-                        }
-                    }
-
                     // Push raw ASR result immediately
                     AsrResult rawResult;
                     rawResult.text = text;

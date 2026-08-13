@@ -1,10 +1,12 @@
 #pragma once
 
-#include <memory>
-#include <thread>
 #include <atomic>
-#include <vector>
+#include <condition_variable>
+#include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include "asr_engine.h"
 
@@ -31,7 +33,7 @@ public:
     const char* Name() const override { return "mimo"; }
 
 private:
-    void TranscribeWorker();
+    void TranscribeWorker(std::vector<float> audio);
     std::string DoHttpRequest(const std::vector<uint8_t>& wavData);
 
     // Config
@@ -44,8 +46,15 @@ private:
     std::vector<float> pcmBuffer_;
 
     // Thread management
-    std::unique_ptr<std::thread> workerThread_;
     std::atomic<bool> cancelled_{false};
+    // Transcription workers run detached; a ticket lock keeps them strictly
+    // FIFO so results are pushed in utterance order. Destruction waits for
+    // all in-flight workers via activeWorkers_.
+    std::mutex ticketMutex_;
+    std::condition_variable ticketCv_;
+    int nextTicket_ = 0;
+    int servedTicket_ = 0;
+    std::atomic<int> activeWorkers_{0};
 };
 
 } // namespace fcitx

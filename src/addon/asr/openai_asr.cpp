@@ -85,8 +85,8 @@ OpenaiCompatAsrEngine::OpenaiCompatAsrEngine() = default;
 
 OpenaiCompatAsrEngine::~OpenaiCompatAsrEngine() {
     cancelled_ = true;
-    if (workerThread_ && workerThread_->joinable()) {
-        workerThread_->join();
+    while (activeWorkers_.load() > 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 }
 
@@ -138,12 +138,6 @@ void OpenaiCompatAsrEngine::FeedAudio(const float* pcm, size_t frames) {
 }
 
 void OpenaiCompatAsrEngine::Stop() {
-    cancelled_ = true;
-    if (workerThread_ && workerThread_->joinable()) {
-        FCITX_DEBUG() << "[voice-input:openai] Joining previous worker thread";
-        workerThread_->join();
-    }
-
     if (pcmBuffer_.empty()) {
         FCITX_WARN() << "[voice-input:openai] Stop with empty buffer — no audio to transcribe";
         if (resultCb_) {
@@ -156,21 +150,37 @@ void OpenaiCompatAsrEngine::Stop() {
     FCITX_INFO() << "[voice-input:openai] Stop: " << pcmBuffer_.size()
                  << " frames (" << durSec << "s), starting transcription";
 
-    cancelled_ = false;
-    workerThread_ = std::make_unique<std::thread>(
-        &OpenaiCompatAsrEngine::TranscribeWorker, this);
+    // Detached worker: Stop() never blocks the caller (previously it joined
+    // the HTTP thread here, freezing Fcitx5 for up to the curl timeout).
+    // Audio moves in with the lambda, so concurrent workers never touch
+    // pcmBuffer_; a ticket lock keeps execution strictly FIFO.
+    std::thread([this, audio = std::move(pcmBuffer_)]() mutable {
+        activeWorkers_.fetch_add(1);
+        int ticket;
+        {
+            std::lock_guard<std::mutex> lock(ticketMutex_);
+            ticket = nextTicket_++;
+        }
+        {
+            std::unique_lock<std::mutex> lock(ticketMutex_);
+            ticketCv_.wait(lock, [this, ticket] { return ticket == servedTicket_; });
+        }
+        TranscribeWorker(std::move(audio));
+        {
+            std::lock_guard<std::mutex> lock(ticketMutex_);
+            servedTicket_++;
+            ticketCv_.notify_all();
+        }
+        activeWorkers_.fetch_sub(1);
+    }).detach();
 }
 
-void OpenaiCompatAsrEngine::TranscribeWorker() {
+void OpenaiCompatAsrEngine::TranscribeWorker(std::vector<float> audio) {
     auto finishEmpty = [this]() {
         if (resultCb_) {
             resultCb_("", true);
         }
     };
-
-    // Take ownership of the buffer
-    std::vector<float> audio;
-    std::swap(audio, pcmBuffer_);
 
     size_t audioFrames = audio.size();
     float audioDurSec = audioFrames / 16000.0f;
