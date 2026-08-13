@@ -32,7 +32,10 @@ VADWorker::~VADWorker() {
 }
 
 void VADWorker::SetConfig(const Config& config) {
-    config_ = config;
+    {
+        std::lock_guard<std::mutex> lock(configMutex_);
+        config_ = config;
+    }
 
     FCITX_INFO() << "[voice-input:vadworker] Config:"
                  << " speechThresh=" << config_.speechThreshold
@@ -95,14 +98,20 @@ void VADWorker::Stop() {
 }
 
 void VADWorker::WorkerLoop() {
+    Config cfg;
     while (running_) {
+        {
+            std::lock_guard<std::mutex> lock(configMutex_);
+            cfg = config_;
+        }
+
         AudioFrame frame;
 
         if (!frameQueue_ || !frameQueue_->TryPop(frame)) {
             // Direct push mode: flush accumulated audio when idle
             if (directPush_ && !currentAudio_.empty()
                 && utteranceQueue_ && utteranceQueue_->Size() < 2) {
-                FlushUtterance(frame.timestamp_ms);
+                FlushUtterance(frame.timestamp_ms, cfg);
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
             continue;
@@ -135,28 +144,29 @@ void VADWorker::WorkerLoop() {
             continue;
         }
 
-        ProcessFrame(frame, prob);
+        ProcessFrame(frame, prob, cfg);
     }
 
     // Flush remaining audio on stop
     if (directPush_ && !currentAudio_.empty() && utteranceQueue_) {
-        FlushUtterance(lastSpeechMs_);
+        FlushUtterance(lastSpeechMs_, cfg);
     }
 }
 
-void VADWorker::ProcessFrame(const AudioFrame& frame, float probability) {
-    bool speechStart = probability >= config_.speechThreshold;
-    bool speechKeep = probability >= config_.silenceThreshold;
+void VADWorker::ProcessFrame(const AudioFrame& frame, float probability,
+                             const Config& cfg) {
+    bool speechStart = probability >= cfg.speechThreshold;
+    bool speechKeep = probability >= cfg.silenceThreshold;
 
-    AppendPreRoll(frame.pcm);
+    AppendPreRoll(frame.pcm, cfg);
 
     if (state_ == State::Idle) {
         if (speechStart) {
             speechFrames_++;
-            if (speechFrames_ >= config_.startFrames) {
+            if (speechFrames_ >= cfg.startFrames) {
                 // Speech onset
                 state_ = State::Speaking;
-                startMs_ = frame.timestamp_ms - config_.preRollMs;
+                startMs_ = frame.timestamp_ms - cfg.preRollMs;
 
                 currentAudio_.clear();
                 currentAudio_.insert(currentAudio_.end(),
@@ -191,24 +201,26 @@ void VADWorker::ProcessFrame(const AudioFrame& frame, float probability) {
     }
 
     int endSilenceFrames =
-        config_.endSilenceMs / kFrameMs;
+        cfg.endSilenceMs / kFrameMs;
     bool silenceEnd = silenceFrames_ >= endSilenceFrames;
 
-    int maxSamples = kSampleRate * config_.maxSpeechMs / 1000;
+    int maxSamples = kSampleRate * cfg.maxSpeechMs / 1000;
     bool tooLong = currentAudio_.size() >= static_cast<size_t>(maxSamples);
 
     if (silenceEnd || tooLong) {
-        FlushUtterance(frame.timestamp_ms);
+        FlushUtterance(frame.timestamp_ms, cfg);
     }
 }
 
-void VADWorker::FlushUtterance(int64_t endMs) {
+void VADWorker::FlushUtterance(int64_t endMs, const Config& cfg) {
     int durationMs =
         static_cast<int>((lastSpeechMs_ - startMs_));
     int minSpeechSamples =
-        kSampleRate * config_.minSpeechMs / 1000;
+        kSampleRate * cfg.minSpeechMs / 1000;
 
-    if (static_cast<int>(currentAudio_.size()) >= minSpeechSamples) {
+    // PTT mode: the user explicitly held the key, so short utterances
+    // ("好", "嗯") must not be filtered by minSpeechMs.
+    if (directPush_ || static_cast<int>(currentAudio_.size()) >= minSpeechSamples) {
         Utterance u;
         u.start_ms = startMs_;
         u.end_ms = lastSpeechMs_;
@@ -236,13 +248,13 @@ void VADWorker::FlushUtterance(int64_t endMs) {
 }
 
 void VADWorker::AppendPreRoll(
-    const std::array<int16_t, kWindowSize>& pcm) {
+    const std::array<int16_t, kWindowSize>& pcm, const Config& cfg) {
     for (auto sample : pcm) {
         preRoll_.push_back(sample);
     }
 
     size_t maxPreRollSamples =
-        static_cast<size_t>(kSampleRate) * config_.preRollMs / 1000;
+        static_cast<size_t>(kSampleRate) * cfg.preRollMs / 1000;
     while (preRoll_.size() > maxPreRollSamples) {
         preRoll_.pop_front();
     }

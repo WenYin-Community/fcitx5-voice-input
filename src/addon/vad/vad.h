@@ -5,6 +5,7 @@
 #include <deque>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -55,12 +56,18 @@ public:
 
 private:
     void WorkerLoop();
-    void ProcessFrame(const AudioFrame& frame, float probability);
-    void FlushUtterance(int64_t endMs);
-    void AppendPreRoll(const std::array<int16_t, kWindowSize>& pcm);
+    void ProcessFrame(const AudioFrame& frame, float probability,
+                      const Config& cfg);
+    void FlushUtterance(int64_t endMs, const Config& cfg);
+    void AppendPreRoll(const std::array<int16_t, kWindowSize>& pcm,
+                       const Config& cfg);
     void ResetSession();
 
     Config config_;
+
+    // Protects config_ (written by SetConfig on the main thread, read by
+    // WorkerLoop on the VAD thread).
+    std::mutex configMutex_;
 
     std::unique_ptr<SileroVad> silero_;
 
