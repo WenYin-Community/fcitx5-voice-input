@@ -29,7 +29,6 @@ public:
     void Init(const VoiceInputConfig& config);
     void SetAsrEngine(std::unique_ptr<AsrEngine> engine);
     void SetLLMClient(std::unique_ptr<LLMClient> client);
-    void SetLLMStream(bool stream) { llmStream_ = stream; }
     void SetResultCallback(ResultCallback cb);
     void SetVadStatusCallback(VADWorker::VadStatusCallback cb);
     void SetLevelCallback(VADWorker::LevelCallback cb);
@@ -68,7 +67,6 @@ private:
 
     // LLM
     std::unique_ptr<LLMClient> llmClient_;
-    bool llmStream_ = true;
 
     // State
     std::atomic<bool> running_{false};

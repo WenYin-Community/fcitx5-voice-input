@@ -100,8 +100,6 @@ FCITX_CONFIGURATION(VoiceInputConfig,
                                   _("Post-processing LLM Model"), ""};
     Option<std::string> llmSystemPrompt{this, "LLMSystemPrompt",
                                          _("Post-processing System Prompt"), ""};
-    Option<bool> llmStream{this, "LLMStream",
-                            _("LLM Streaming"), true};
 
     // Output behavior
     Option<bool> autoCommit{this, "AutoCommit",

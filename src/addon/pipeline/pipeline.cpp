@@ -89,58 +89,23 @@ void Pipeline::SetAsrEngine(std::unique_ptr<AsrEngine> engine) {
                     // If LLM is configured, process and push refined result
                     if (llmClient_) {
                         FCITX_DEBUG() << "[voice-input] LLM refine started"
-                                      << " uid=" << uid << " gen=" << gen
-                                      << " stream=" << llmStream_;
-                        if (llmStream_) {
-                            llmClient_->ProcessStream(text,
-                                // onToken: push partial refined result
-                                [this, uid, gen](const std::string& partial) {
-                                    AsrResult partialResult;
-                                    partialResult.text = partial;
-                                    partialResult.generation = gen;
-                                    partialResult.utteranceId = uid;
-                                    partialResult.isLLMRefined = true;
-                                    partialResult.isPartial = true;
-                                    FCITX_DEBUG() << "[voice-input] LLM partial: uid="
-                                                  << uid << " text=\"" << partial << "\"";
-                                    resultQueue_.Push(std::move(partialResult));
-                                    if (resultCb_) {
-                                        resultCb_(partial);
-                                    }
-                                },
-                                // onComplete: push final refined result
-                                [this, uid, gen](const std::string& fullText) {
-                                    AsrResult finalResult;
-                                    finalResult.text = fullText;
-                                    finalResult.generation = gen;
-                                    finalResult.utteranceId = uid;
-                                    finalResult.isLLMRefined = true;
-                                    finalResult.isPartial = false;
-                                    FCITX_INFO() << "[voice-input] LLM final: uid="
-                                                 << uid << " text=\"" << fullText << "\"";
-                                    resultQueue_.Push(std::move(finalResult));
-                                    if (resultCb_) {
-                                        resultCb_(fullText);
-                                    }
-                                });
-                        } else {
-                            std::string processed = llmClient_->Process(text);
-                            if (!processed.empty()) {
-                                AsrResult refinedResult;
-                                refinedResult.text = processed;
-                                refinedResult.generation = gen;
-                                refinedResult.utteranceId = uid;
-                                refinedResult.isLLMRefined = true;
-                                FCITX_INFO() << "[voice-input] LLM refined push: uid="
-                                             << uid << " text=\"" << processed << "\"";
-                                resultQueue_.Push(std::move(refinedResult));
-                                if (resultCb_) {
-                                    resultCb_(processed);
-                                }
-                            } else {
-                                FCITX_DEBUG() << "[voice-input] LLM refine skipped"
-                                              << " (empty result) uid=" << uid;
+                                      << " uid=" << uid << " gen=" << gen;
+                        std::string processed = llmClient_->Process(text);
+                        if (!processed.empty()) {
+                            AsrResult refinedResult;
+                            refinedResult.text = processed;
+                            refinedResult.generation = gen;
+                            refinedResult.utteranceId = uid;
+                            refinedResult.isLLMRefined = true;
+                            FCITX_INFO() << "[voice-input] LLM refined push: uid="
+                                         << uid << " text=\"" << processed << "\"";
+                            resultQueue_.Push(std::move(refinedResult));
+                            if (resultCb_) {
+                                resultCb_(processed);
                             }
+                        } else {
+                            FCITX_DEBUG() << "[voice-input] LLM refine skipped"
+                                          << " (empty result) uid=" << uid;
                         }
                     }
                 }

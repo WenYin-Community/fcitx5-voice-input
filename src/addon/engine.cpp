@@ -221,15 +221,7 @@ void VoiceInputEngine::PollResults() {
 
         if (valid) {
             if (result.isLLMRefined) {
-                if (result.isPartial) {
-                    // Streaming partial: update preedit in-place
-                    if (result.utteranceId == pendingPreeditUtteranceId_) {
-                        activeIc_->inputPanel().setPreedit(Text(result.text));
-                        activeIc_->updateUserInterface(UserInterfaceComponent::InputPanel);
-                        statusText_ = result.text;
-                        activeIc_->updateUserInterface(UserInterfaceComponent::StatusArea);
-                    }
-                } else if (result.utteranceId == pendingPreeditUtteranceId_) {
+                if (result.utteranceId == pendingPreeditUtteranceId_) {
                     FCITX_INFO() << "[voice-input] LLM commit: uid=" << result.utteranceId
                                  << " text=\"" << result.text << "\"";
                     activeIc_->commitString(result.text);
@@ -424,7 +416,6 @@ void VoiceInputEngine::InitializeIfNeeded() {
     // LLM post-processing
     bool llmEnabled = config_.llmEnabled.value();
     std::string llmModel = config_.llmModel.value();
-    pipeline_->SetLLMStream(config_.llmStream.value());
     if (llmEnabled && !llmModel.empty()) {
         auto llmConfig = LLMClient::Config{};
         llmConfig.endpoint = config_.openaiEndpoint.value();

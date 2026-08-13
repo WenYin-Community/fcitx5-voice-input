@@ -30,7 +30,6 @@ struct AsrResult {
     uint64_t generation = 0;
     uint64_t utteranceId = 0;
     bool isLLMRefined = false;
-    bool isPartial = false;
 };
 
 } // namespace fcitx
