@@ -120,7 +120,7 @@ std::string LLMClient::Process(const std::string& text) {
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "fcitx5-voice-input/0.1.0");
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "fcitx5-voice-input/" VOICE_INPUT_VERSION);
 
     CURLcode res = curl_easy_perform(curl);
 

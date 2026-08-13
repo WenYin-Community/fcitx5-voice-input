@@ -251,7 +251,7 @@ std::string OpenaiCompatAsrEngine::DoHttpRequest(const std::vector<uint8_t>& wav
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
         curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
-        curl_easy_setopt(curl, CURLOPT_USERAGENT, "fcitx5-voice-input/0.1.0");
+        curl_easy_setopt(curl, CURLOPT_USERAGENT, "fcitx5-voice-input/" VOICE_INPUT_VERSION);
         curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION,
                          +[](void* p, curl_off_t, curl_off_t, curl_off_t, curl_off_t) -> int {
                              return static_cast<OpenaiCompatAsrEngine*>(p)->cancelled_ ? 1 : 0;

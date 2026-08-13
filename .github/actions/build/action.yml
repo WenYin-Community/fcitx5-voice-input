@@ -39,11 +39,15 @@ runs:
 
     - name: Configure
       shell: bash
-      run: cmake -B build -DCMAKE_BUILD_TYPE=${{ inputs.build_type }} -DCMAKE_INSTALL_PREFIX=/usr -DONNXRUNTIME_ROOT="${ONNXRUNTIME_ROOT}"
+      run: cmake -B build -DCMAKE_BUILD_TYPE=${{ inputs.build_type }} -DCMAKE_INSTALL_PREFIX=/usr -DONNXRUNTIME_ROOT="${ONNXRUNTIME_ROOT}" -DBUILD_TESTS=ON
 
     - name: Compile
       shell: bash
       run: cmake --build build -j"$(nproc)"
+
+    - name: Run tests
+      shell: bash
+      run: ctest --test-dir build --output-on-failure
 
     - name: Package DEB
       id: deb
