@@ -42,6 +42,8 @@ public:
 
 private:
     void InitializeIfNeeded();
+    void RecreateEngines();
+    void TryRecreateEngines();
     void OnAsrResult(const std::string& text);
     void PollResults();
     void ClearUI();
@@ -62,6 +64,10 @@ private:
     std::string statusText_;
     std::string pendingPreeditText_;
     uint64_t pendingPreeditUtteranceId_ = 0;
+
+    // Set when setConfig() changes ASR/LLM settings; engines are recreated
+    // before the next recording session (Pipeline::Start).
+    bool enginesDirty_ = false;
 
     // Push-to-talk state
     bool pttActive_ = false;

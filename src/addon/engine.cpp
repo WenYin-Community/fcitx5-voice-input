@@ -38,6 +38,17 @@ void VoiceInputEngine::reloadConfig() {
 }
 
 void VoiceInputEngine::setConfig(const RawConfig& rawConfig) {
+    // Snapshot engine-affecting keys before loading (config_ can't be copied)
+    auto backend = config_.asrBackend.value();
+    auto format = config_.apiFormat.value();
+    auto endpoint = config_.openaiEndpoint.value();
+    auto apiKey = config_.openaiApiKey.value();
+    auto model = config_.openaiModel.value();
+    auto language = config_.openaiLanguage.value();
+    auto llmEnabled = config_.llmEnabled.value();
+    auto llmModel = config_.llmModel.value();
+    auto llmPrompt = config_.llmSystemPrompt.value();
+
     config_.load(rawConfig, true);
 
     bool saved = safeSaveAsIni(config_, "conf/voiceinput.conf");
@@ -45,6 +56,20 @@ void VoiceInputEngine::setConfig(const RawConfig& rawConfig) {
 
     if (initialized_) {
         pipeline_->SetConfig(config_);
+
+        bool enginesChanged = config_.asrBackend.value() != backend
+            || config_.apiFormat.value() != format
+            || config_.openaiEndpoint.value() != endpoint
+            || config_.openaiApiKey.value() != apiKey
+            || config_.openaiModel.value() != model
+            || config_.openaiLanguage.value() != language
+            || config_.llmEnabled.value() != llmEnabled
+            || config_.llmModel.value() != llmModel
+            || config_.llmSystemPrompt.value() != llmPrompt;
+        if (enginesChanged) {
+            FCITX_INFO() << "[voice-input] Engine config changed, will recreate before next session";
+            enginesDirty_ = true;
+        }
     }
 }
 
@@ -352,6 +377,18 @@ void VoiceInputEngine::InitializeIfNeeded() {
 
     pipeline_->Init(config_);
 
+    pipeline_->SetRecreateCallback([this]() { TryRecreateEngines(); });
+
+    RecreateEngines();
+}
+
+void VoiceInputEngine::RecreateEngines() {
+    auto onAsrError = [this](const std::string& err) {
+        std::string msg = err;
+        if (msg.size() > 60) msg = msg.substr(0, 60) + "...";
+        SetStatus(std::string(_("Recognition failed: ")) + msg);
+    };
+
     auto asrConfig = AsrEngine::Config{};
     asrConfig.apiEndpoint = config_.openaiEndpoint.value();
     asrConfig.apiKey = config_.openaiApiKey.value();
@@ -380,12 +417,7 @@ void VoiceInputEngine::InitializeIfNeeded() {
         asrConfig.authScheme = "api-key";
         auto mimo = std::make_unique<OpenaiCompatAsrEngine>();
         if (mimo->Init(asrConfig)) {
-            mimo->SetErrorCallback(
-                [this](const std::string& err) {
-                    std::string msg = err;
-                    if (msg.size() > 60) msg = msg.substr(0, 60) + "...";
-                    SetStatus(std::string(_("Recognition failed: ")) + msg);
-                });
+            mimo->SetErrorCallback(onAsrError);
             asr = std::move(mimo);
             FCITX_INFO() << "[voice-input] Using MiMo ASR: "
                          << asrConfig.apiEndpoint
@@ -397,12 +429,7 @@ void VoiceInputEngine::InitializeIfNeeded() {
     } else {
         auto openai = std::make_unique<OpenaiCompatAsrEngine>();
         if (openai->Init(asrConfig)) {
-            openai->SetErrorCallback(
-                [this](const std::string& err) {
-                    std::string msg = err;
-                    if (msg.size() > 60) msg = msg.substr(0, 60) + "...";
-                    SetStatus(std::string(_("Recognition failed: ")) + msg);
-                });
+            openai->SetErrorCallback(onAsrError);
             asr = std::move(openai);
             FCITX_INFO() << "[voice-input] Using OpenAI-compatible ASR: "
                          << config_.openaiEndpoint.value()
@@ -432,6 +459,12 @@ void VoiceInputEngine::InitializeIfNeeded() {
         FCITX_INFO() << "[voice-input] LLM post-processing enabled: "
                      << " model=" << llmModel;
     }
+}
+
+void VoiceInputEngine::TryRecreateEngines() {
+    if (!enginesDirty_) return;
+    enginesDirty_ = false;
+    RecreateEngines();
 }
 
 } // namespace fcitx

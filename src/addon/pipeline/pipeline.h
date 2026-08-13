@@ -29,6 +29,9 @@ public:
     void Init(const VoiceInputConfig& config);
     void SetAsrEngine(std::unique_ptr<AsrEngine> engine);
     void SetLLMClient(std::unique_ptr<LLMClient> client);
+    void SetRecreateCallback(std::function<void()> cb) {
+        recreateCb_ = std::move(cb);
+    }
     void SetResultCallback(ResultCallback cb);
     void SetVadStatusCallback(VADWorker::VadStatusCallback cb);
     void SetLevelCallback(VADWorker::LevelCallback cb);
@@ -78,6 +81,10 @@ private:
 
     // Callback
     ResultCallback resultCb_;
+    // Called from Start() before (re)building the pipeline, with running_
+    // guaranteed false — the engine layer recreates ASR/LLM here after a
+    // config change.
+    std::function<void()> recreateCb_;
 };
 
 } // namespace fcitx

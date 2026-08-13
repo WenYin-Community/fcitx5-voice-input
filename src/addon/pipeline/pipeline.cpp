@@ -64,6 +64,14 @@ void Pipeline::SetLLMClient(std::unique_ptr<LLMClient> client) {
 }
 
 void Pipeline::SetAsrEngine(std::unique_ptr<AsrEngine> engine) {
+    if (asrEngine_) {
+        // Destroy the old engine off the main thread: its destructor waits
+        // for in-flight transcription workers, which can take up to the
+        // curl timeout, and recreating happens right before a new session.
+        std::thread([old = std::move(asrEngine_)]() mutable {
+            old.reset();
+        }).detach();
+    }
     asrEngine_ = std::move(engine);
     if (asrEngine_) {
         asrEngine_->SetResultCallback(
@@ -141,6 +149,14 @@ void Pipeline::Start() {
         // Drain stale results
         AsrResult r;
         while (resultQueue_.TryPop(r)) {}
+    }
+
+    // Recreate ASR/LLM engines if config changed while the pipeline was
+    // running. Called with running_ == false, so the engine swap is safe.
+    // Runs before the asrEngine_ check so a previously failed init can
+    // recover on the next session.
+    if (recreateCb_) {
+        recreateCb_();
     }
 
     if (!asrEngine_) {
