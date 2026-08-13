@@ -53,10 +53,10 @@ private:
     bool StartCapture();
     void AsrWorkerLoop();
 
-    // Queues
-    ThreadSafeQueue<AudioFrame> frameQueue_;
-    ThreadSafeQueue<Utterance> utteranceQueue_;
-    ThreadSafeQueue<AsrResult> resultQueue_;
+    // Queues (bounded: when full the oldest item is dropped to cap memory)
+    ThreadSafeQueue<AudioFrame> frameQueue_{1024};      // ~33s of audio
+    ThreadSafeQueue<Utterance> utteranceQueue_{32};
+    ThreadSafeQueue<AsrResult> resultQueue_{1024};
 
     // Workers
     std::unique_ptr<VADWorker> vadWorker_;

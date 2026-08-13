@@ -182,6 +182,8 @@ void VoiceInputEngine::keyEvent(const InputMethodEntry& entry,
         pttHeldKeyCode_ = 0;
         if (pttActive_) {
             pttActive_ = false;
+            // Stop the level timer so the status stays "Recognizing..."
+            recording_.store(false);
             // Delayed stop: capture trailing audio for 200ms
             uint64_t gen = sessionGeneration_.load();
             pttDelayedStopEvent_ = instance_->eventLoop().addTimeEvent(

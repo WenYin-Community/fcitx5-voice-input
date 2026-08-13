@@ -31,6 +31,10 @@ private:
     pa_simple* stream_ = nullptr;
     std::unique_ptr<std::thread> captureThread_;
     std::atomic<bool> running_{false};
+    // Incremented at thread spawn, decremented as the last statement of
+    // CaptureLoop; Stop() detaches (never joins — the thread may be stuck
+    // in pa_simple_read) and the destructor waits on this count.
+    std::atomic<int> activeThreads_{0};
 };
 
 } // namespace fcitx

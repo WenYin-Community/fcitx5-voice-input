@@ -67,7 +67,14 @@ std::string FindBestSourceName() {
 
 PulseAudioCapture::PulseAudioCapture() = default;
 
-PulseAudioCapture::~PulseAudioCapture() { Stop(); }
+PulseAudioCapture::~PulseAudioCapture() {
+    Stop();
+    // Wait for the capture thread: pa_simple_free() above interrupts the
+    // blocked read, so this terminates quickly even if the source stalled.
+    while (activeThreads_.load() > 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+}
 
 bool PulseAudioCapture::Start() {
     if (running_) return true;
@@ -98,6 +105,7 @@ bool PulseAudioCapture::Start() {
     }
 
     running_ = true;
+    activeThreads_.fetch_add(1);
     captureThread_ = std::make_unique<std::thread>(
         &PulseAudioCapture::CaptureLoop, this);
     FCITX_INFO() << "[voice-input:pulse] Capture started (16kHz mono int16, "
@@ -110,7 +118,10 @@ void PulseAudioCapture::Stop() {
 
     running_ = false;
     if (captureThread_ && captureThread_->joinable()) {
-        captureThread_->join();
+        // The thread may be blocked in pa_simple_read(); joining would hang
+        // forever if the source stalls. Detach and let pa_simple_free()
+        // below interrupt the read; the thread drops activeThreads_ on exit.
+        captureThread_->detach();
         captureThread_.reset();
     }
 
@@ -145,6 +156,8 @@ void PulseAudioCapture::CaptureLoop() {
         frame.pcm = buffer;
         frameQueue_->Push(frame);
     }
+
+    activeThreads_.fetch_sub(1);
 }
 
 } // namespace fcitx
