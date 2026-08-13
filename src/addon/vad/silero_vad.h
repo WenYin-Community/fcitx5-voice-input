@@ -7,7 +7,16 @@
 
 namespace fcitx {
 
-class SileroVad {
+// Abstract VAD interface — SileroVad implements it, tests inject a mock.
+class VadModel {
+public:
+    virtual ~VadModel() = default;
+    virtual float Predict(const int16_t* pcm, size_t samples) = 0;
+    virtual void Reset() = 0;
+    virtual bool IsReady() const = 0;
+};
+
+class SileroVad : public VadModel {
 public:
     explicit SileroVad(const std::string& modelPath);
     ~SileroVad();

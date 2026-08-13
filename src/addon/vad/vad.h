@@ -15,7 +15,7 @@
 
 namespace fcitx {
 
-class SileroVad;
+class VadModel;
 
 class VADWorker {
 public:
@@ -52,6 +52,9 @@ public:
     // When true, skip VAD model and push all audio directly to utterance queue
     void SetDirectPush(bool direct) { directPush_ = direct; }
 
+    // Test seam: overrides the model created in Start().
+    void SetVadModel(std::unique_ptr<VadModel> model);
+
     bool IsRunning() const { return running_.load(); }
 
 private:
@@ -69,7 +72,7 @@ private:
     // WorkerLoop on the VAD thread).
     std::mutex configMutex_;
 
-    std::unique_ptr<SileroVad> silero_;
+    std::unique_ptr<VadModel> silero_;
 
     ThreadSafeQueue<AudioFrame>* frameQueue_ = nullptr;
     ThreadSafeQueue<Utterance>* utteranceQueue_ = nullptr;

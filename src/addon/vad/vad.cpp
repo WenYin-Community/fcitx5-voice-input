@@ -47,6 +47,10 @@ void VADWorker::SetConfig(const Config& config) {
                  << " maxSpeechMs=" << config_.maxSpeechMs;
 }
 
+void VADWorker::SetVadModel(std::unique_ptr<VadModel> model) {
+    silero_ = std::move(model);
+}
+
 void VADWorker::SetFrameQueue(ThreadSafeQueue<AudioFrame>* queue) {
     frameQueue_ = queue;
 }
@@ -67,11 +71,13 @@ void VADWorker::Start() {
     if (running_) return;
 
     if (!directPush_) {
-        // Init Silero VAD model
-        std::string modelPath = config_.sileroModelPath.empty()
-                                    ? DefaultSileroModelPath()
-                                    : config_.sileroModelPath;
-        silero_ = std::make_unique<SileroVad>(modelPath);
+        // Init Silero VAD model (tests inject a mock via SetVadModel)
+        if (!silero_) {
+            std::string modelPath = config_.sileroModelPath.empty()
+                                        ? DefaultSileroModelPath()
+                                        : config_.sileroModelPath;
+            silero_ = std::make_unique<SileroVad>(modelPath);
+        }
         if (!silero_->IsReady()) {
             FCITX_ERROR() << "[voice-input:vadworker] SileroVad init failed";
             return;

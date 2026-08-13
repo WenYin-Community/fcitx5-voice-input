@@ -101,6 +101,7 @@ set(ADDON_SOURCES
     src/addon/vad/silero_vad.cpp
     src/addon/pipeline/pipeline.cpp
     src/addon/asr/openai_asr.cpp
+    src/addon/asr/wav_encoder.cpp
     src/addon/llm/llm_client.cpp
 )
 
@@ -116,6 +117,7 @@ set(ADDON_HEADERS
     src/addon/vad/silero_vad.h
     src/addon/asr/asr_engine.h
     src/addon/asr/openai_asr.h
+    src/addon/asr/wav_encoder.h
     src/addon/llm/llm_client.h
     src/addon/pipeline/pipeline.h
     src/addon/utils/audio_buffer.h
