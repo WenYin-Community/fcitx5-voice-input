@@ -37,8 +37,7 @@ struct ApiFormatAnnotation : public EnumAnnotation {
         config.setValueByPath("EnumI18n/0",
             "Multipart Form (/audio/transcriptions)");
         config.setValueByPath("Enum/1", "chat");
-        config.setValueByPath("EnumI18n/1",
-            "JSON Base64 (/chat/completions)");
+        config.setValueByPath("EnumI18n/1", "OpenAI chat");
     }
 };
 
