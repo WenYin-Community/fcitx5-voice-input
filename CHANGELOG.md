@@ -14,6 +14,23 @@
 - 修复 curl >= 8.2.0 的 `curl_ws_recv` metap 参数 const 化导致的编译失败
   （Debian 12 curl 7.88 等老版本，按 LIBCURL_VERSION_NUM 条件分支）
 
+### Added（本仓库）
+- 小米 MiMo ASR：复用 OpenAI 兼容引擎，强制 chat 格式 + api-key 认证
+- 按住说话（PTT）模式：按住热键录音，松开上屏，热键可配置
+- 录音时状态栏音量电平条（10 格，200ms 刷新）
+- 单元测试套件（`tests/`，CI 各发行版构建内跑 ctest）
+- 配置界面后端选项按「协议/模式（典型提供商）」标注，API 模式写清传输方式
+- AUR 构建配方（`aur/PKGBUILD`）与独立 RPM spec（`rpm/`），随 release 发布
+
+### Fixed（本仓库）
+- VAD 起始帧被重复送入 ASR，导致每段语音开头多出 32ms 音频
+- PulseAudio 读取可能卡死时不再 join，避免退出流程冻结
+- 队列加上容量上界，防止异常路径下内存无界增长
+- 配置热加载竞态；PTT 短语音被静音阈值误丢弃
+- PTT 结果重复上屏、热键二次按下失效
+- 打包元数据：PKGBUILD 许可证与模型来源、RPM spec 版本与文件清单、
+  DEB/RPM 的 URL 与描述均修正为指向本仓库
+
 ## [0.4.0] - 2026-08-11
 
 ### Added
