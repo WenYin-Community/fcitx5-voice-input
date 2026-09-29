@@ -33,30 +33,6 @@
 
 ### 1. Installation
 
-#### AUR (Arch Linux)
-
-The AUR package [`fcitx5-voice-input`](https://aur.archlinux.org/packages/fcitx5-voice-input)
-belongs to the upstream project and builds from the upstream repository, not
-from this one. Installing it therefore gives you upstream's build:
-
-```bash
-yay -S fcitx5-voice-input
-```
-
-To install *this* project on Arch, use the `PKGBUILD` and source tarball
-attached to [Releases](https://github.com/WenYin-Community/fcitx5-voice-input/releases):
-
-```bash
-# after downloading PKGBUILD and the source tarball into one directory
-makepkg -si
-```
-
-#### COPR (Fedora / openSUSE)
-
-Not published: the COPR job was removed from the release workflow, so there
-is no repository to enable. Install the RPM from
-[Releases](#deb--rpm-packages) instead.
-
 #### DEB / RPM packages
 
 Download the package matching your distro from
@@ -73,6 +49,16 @@ sudo dnf install ./fcitx5-voice-input-*_fedora-44.rpm     # Fedora / openSUSE
 > install its runtime yourself first (see
 > [onnxruntime releases](https://github.com/microsoft/onnxruntime/releases)),
 > otherwise the addon cannot be loaded.
+
+#### Arch Linux
+
+Use the `PKGBUILD` and source tarball attached to
+[Releases](https://github.com/WenYin-Community/fcitx5-voice-input/releases):
+
+```bash
+# after downloading PKGBUILD and the source tarball into one directory
+makepkg -si
+```
 
 #### Build from source
 

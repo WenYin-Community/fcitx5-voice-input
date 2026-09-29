@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fcitx5-voice-input · Fcitx5 语音输入插件</title>
+<meta name="description" content="fcitx5-voice-input — 支持 OpenAI 兼容 API、火山引擎豆包流式与小米 MiMo 的 Fcitx5 语音输入插件，含 VAD 自动分段与按住说话模式。">
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+<style>
+  :root {
+    --bg: #171a2b;
+    --bg2: #20263e;
+    --card: #282e48;
+    --text: #f0f3fa;
+    --muted: #96a0b9;
+    --accent: #63b3ff;
+    --accent2: #a882ff;
+    --line: rgba(255,255,255,.10);
+    --mono: ui-monospace, "Noto Sans Mono CJK SC", "DejaVu Sans Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; color: var(--text); line-height: 1.7;
+    background: radial-gradient(1100px 600px at 82% -8%, #2b3963 0%, transparent 60%),
+                radial-gradient(900px 500px at 5% 105%, #24305a 0%, transparent 55%),
+                linear-gradient(180deg, var(--bg) 0%, var(--bg2) 100%);
+    background-attachment: fixed;
+    font-family: "Noto Sans CJK SC", "Source Han Sans SC", -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  /* 用长属性设置左右内边距：若写成 padding 简写会与本文件的
+     header/footer 垂直 padding 规则争抢同一属性，且类选择器优先级更高 */
+  .wrap { max-width: 1040px; margin: 0 auto; padding-left: 24px; padding-right: 24px; }
+
+  header { padding-top: 64px; padding-bottom: 40px; }
+  .brand { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+  .brand svg { flex: 0 0 auto; }
+  h1 { font-size: clamp(28px, 4.4vw, 46px); margin: 0; letter-spacing: -.5px; }
+  .tagline { color: var(--accent); font-size: clamp(15px, 2vw, 20px); margin: 6px 0 0; }
+  .lede { color: var(--muted); font-size: 17px; margin: 24px 0 0; max-width: 68ch; }
+
+  .badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 26px; }
+  .badge {
+    font-size: 13px; padding: 4px 12px; border-radius: 999px;
+    background: rgba(255,255,255,.06); border: 1px solid var(--line); color: var(--muted);
+  }
+  .badge b { color: var(--text); font-weight: 600; }
+
+  .cta { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 30px; }
+  .btn {
+    display: inline-block; padding: 11px 22px; border-radius: 10px;
+    font-weight: 600; font-size: 15px; border: 1px solid transparent;
+  }
+  .btn.primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #10131f; }
+  .btn.ghost { border-color: var(--line); color: var(--text); background: rgba(255,255,255,.04); }
+  .btn:hover { text-decoration: none; filter: brightness(1.08); }
+
+  section { padding-top: 46px; padding-bottom: 46px; border-top: 1px solid var(--line); }
+  h2 { font-size: 24px; margin: 0 0 22px; }
+
+  .grid { display: grid; gap: 18px; }
+  .cols-3 { grid-template-columns: repeat(auto-fit, minmax(248px, 1fr)); }
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 14px; padding: 22px;
+  }
+  .card h3 { margin: 0 0 14px; font-size: 17px; }
+  .card ul { margin: 0; padding-left: 20px; color: var(--muted); font-size: 15px; }
+  .card li { margin: 7px 0; }
+
+  pre {
+    background: #0e111e; border: 1px solid var(--line); border-radius: 12px;
+    padding: 18px 20px; overflow-x: auto; font-family: var(--mono); font-size: 13.5px;
+    line-height: 1.75; color: #cfe4ff;
+  }
+  code { font-family: var(--mono); font-size: .93em; }
+  p code, li code { background: rgba(255,255,255,.07); padding: 2px 6px; border-radius: 5px; color: #cfe4ff; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+  th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; }
+  td { color: var(--text); }
+  td:first-child { white-space: nowrap; color: var(--muted); }
+  .scroll { overflow-x: auto; }
+
+  .poster { width: 100%; height: auto; border-radius: 14px; border: 1px solid var(--line); display: block; }
+  .note {
+    border-left: 3px solid var(--accent); background: rgba(99,179,255,.07);
+    padding: 14px 18px; border-radius: 0 8px 8px 0; color: var(--muted); font-size: 14.5px;
+  }
+  footer { padding-top: 40px; padding-bottom: 60px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
+  footer .row { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+
+<header class="wrap">
+  <div class="brand">
+    <svg width="76" height="76" viewBox="0 0 76 76" aria-hidden="true">
+      <rect width="76" height="76" rx="20" fill="url(#g)"/>
+      <defs>
+        <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#63b3ff"/><stop offset="1" stop-color="#a882ff"/>
+        </linearGradient>
+      </defs>
+      <g fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round">
+        <rect x="30.5" y="18" width="15" height="30" rx="7.5" fill="#fff" stroke="none"/>
+        <path d="M21 36a17 17 0 0 0 34 0"/>
+        <line x1="38" y1="53" x2="38" y2="60"/>
+        <line x1="28" y1="60" x2="48" y2="60"/>
+      </g>
+    </svg>
+    <div>
+      <h1>fcitx5-voice-input</h1>
+      <p class="tagline">Fcitx5 语音输入插件 · 即说即得</p>
+    </div>
+  </div>
+
+  <p class="lede">
+    在 Fcitx5 里用语音输入。VAD 自动检测说话并分段，识别结果直接上屏；
+    也可切换按住说话模式。支持 OpenAI 兼容 API、火山引擎豆包流式与小米 MiMo。
+  </p>
+
+  <div class="badges">
+    <span class="badge">版本 <b>0.4.2</b></span>
+    <span class="badge">许可 <b>LGPL-3.0</b></span>
+    <span class="badge">平台 <b>Linux</b></span>
+    <span class="badge">Fcitx5 <b>≥ 5.1.19</b></span>
+    <span class="badge">C++ <b>20</b></span>
+  </div>
+
+  <div class="cta">
+    <a class="btn primary" href="https://github.com/WenYin-Community/fcitx5-voice-input/releases/latest">下载最新版本</a>
+    <a class="btn ghost" href="https://github.com/WenYin-Community/fcitx5-voice-input">源码仓库</a>
+    <a class="btn ghost" href="#install">安装说明</a>
+  </div>
+</header>
+
+<section class="wrap" id="features">
+  <h2>功能</h2>
+  <div class="grid cols-3">
+    <div class="card">
+      <h3>语音识别后端</h3>
+      <ul>
+        <li>OpenAI 兼容 API（whisper / chat / realtime）</li>
+        <li>火山引擎豆包流式（边说边出中间结果）</li>
+        <li>小米 MiMo ASR</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>交互方式</h3>
+      <ul>
+        <li>VAD 自动分段，免按键连续输入</li>
+        <li>按住热键说话（PTT），松开上屏</li>
+        <li>录音时状态栏显示音量电平条</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>工程特性</h3>
+      <ul>
+        <li>DEB / RPM / Arch 原生包</li>
+        <li>录音库运行期 dlopen，无链接期依赖</li>
+        <li>GitHub Actions 多发行版构建矩阵</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="wrap" id="install">
+  <h2>安装</h2>
+
+  <h3 style="font-size:17px;margin:0 0 12px">DEB / RPM</h3>
+  <p style="color:var(--muted);font-size:15px;margin:0 0 14px">
+    从 <a href="https://github.com/WenYin-Community/fcitx5-voice-input/releases/latest">Releases</a>
+    下载对应发行版的包，文件名带发行版标识（如
+    <code>fcitx5-voice-input_0.4.2_amd64_ubuntu-24.04.deb</code>）。
+  </p>
+<pre>sudo apt install ./fcitx5-voice-input_*_ubuntu-24.04.deb   # Ubuntu / Debian
+sudo dnf install ./fcitx5-voice-input-*_fedora-44.rpm     # Fedora / openSUSE</pre>
+
+  <div class="note" style="margin:18px 0">
+    Ubuntu 24.04 与 Debian 12 官方仓库没有 onnxruntime，需先自行安装其运行时
+    （见 <a href="https://github.com/microsoft/onnxruntime/releases">onnxruntime releases</a>），
+    否则插件无法加载。
+  </div>
+
+  <h3 style="font-size:17px;margin:26px 0 12px">Arch Linux</h3>
+  <p style="color:var(--muted);font-size:15px;margin:0 0 14px">
+    使用 Releases 附件中的 <code>PKGBUILD</code> 与源码包构建。
+  </p>
+<pre># 把 PKGBUILD 与源码包下载到同一目录后
+makepkg -si</pre>
+
+  <div class="note" style="margin:18px 0">
+    <b style="color:var(--text)">安装后需要重启 Fcitx5</b>，插件才会被加载：
+    <code>fcitx5 -r -d</code>
+  </div>
+</section>
+
+<section class="wrap" id="configure">
+  <h2>配置</h2>
+  <p style="color:var(--muted);font-size:15px;margin:0 0 18px">
+    安装后在 <code>fcitx5-configtool</code> 的输入法列表中添加 <b>Voice Input</b>，
+    然后打开 Addon 配置 <b>VoiceInput</b>。下表「界面选项」即配置页中显示的名称。
+  </p>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>界面选项</th><th>说明</th><th>默认值</th></tr></thead>
+    <tbody>
+      <tr><td>当前 ASR 后端</td><td>选择后端；点齿轮按钮打开该后端的子配置页</td><td>OpenAI 兼容 API</td></tr>
+      <tr><td>录音模式</td><td><code>VAD 自动分段（免按键）</code> 或 <code>按住热键说话（PTT）</code></td><td>VAD 自动分段</td></tr>
+      <tr><td>按住说话热键</td><td>按住期间录音，松开上屏（PTT 模式生效）</td><td>右 Ctrl</td></tr>
+      <tr><td>语音检测阈值 (%)</td><td>VAD 灵敏度，0–100，越高越不易触发</td><td>20</td></tr>
+      <tr><td>静音检测阈值 (毫秒)</td><td>静音多久判定一段语音结束</td><td>800</td></tr>
+      <tr><td>预卷时长 (毫秒)</td><td>说话开始前预取的音频</td><td>300</td></tr>
+      <tr><td>最长语音时长 (毫秒)</td><td>超过此长度强制分段</td><td>30000</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="wrap" id="poster">
+  <h2>项目海报</h2>
+  <img class="poster" src="assets/poster-zh.png" alt="fcitx5-voice-input 项目海报（中文）" loading="lazy">
+</section>
+
+<footer class="wrap">
+  <div class="row">
+    <span>LGPL-3.0 · Linux · Fcitx5 ≥ 5.1.19</span>
+    <span>
+      <a href="https://github.com/WenYin-Community/fcitx5-voice-input">GitHub</a> ·
+      <a href="https://github.com/WenYin-Community/fcitx5-voice-input/blob/main/README.zh-CN.md">README</a> ·
+      <a href="https://github.com/WenYin-Community/fcitx5-voice-input/releases">Releases</a>
+    </span>
+  </div>
+</footer>
+
+</body>
+</html>

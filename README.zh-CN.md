@@ -33,29 +33,6 @@
 
 ### 1. 安装
 
-#### AUR (Arch Linux)
-
-AUR 上的 [`fcitx5-voice-input`](https://aur.archlinux.org/packages/fcitx5-voice-input)
-属于上游项目，源码取自上游仓库而非本项目。因此 `yay -S` 装到的是上游版本：
-
-```bash
-yay -S fcitx5-voice-input
-```
-
-要在 Arch 上安装**本项目**，请使用
-[Releases](https://github.com/WenYin-Community/fcitx5-voice-input/releases)
-附件中的 `PKGBUILD` 与源码包：
-
-```bash
-# 把 PKGBUILD 与源码包下载到同一目录后
-makepkg -si
-```
-
-#### COPR (Fedora / openSUSE)
-
-本项目的 COPR 发布任务已从 release 流程移除，没有可启用的仓库。
-请改用 [Releases](#deb--rpm-安装包) 中的 RPM 包。
-
 #### DEB / RPM 安装包
 
 从 [Releases](https://github.com/WenYin-Community/fcitx5-voice-input/releases)
@@ -70,6 +47,16 @@ sudo dnf install ./fcitx5-voice-input-*_fedora-44.rpm     # Fedora / openSUSE
 > Ubuntu 24.04 与 Debian 12 官方仓库没有 onnxruntime，需先自行安装其运行时
 > （可从 [onnxruntime releases](https://github.com/microsoft/onnxruntime/releases)
 > 获取），否则 addon 无法加载。
+
+#### Arch Linux
+
+使用 [Releases](https://github.com/WenYin-Community/fcitx5-voice-input/releases)
+附件中的 `PKGBUILD` 与源码包构建：
+
+```bash
+# 把 PKGBUILD 与源码包下载到同一目录后
+makepkg -si
+```
 
 #### 手动编译安装
 
