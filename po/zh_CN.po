@@ -3,11 +3,23 @@ msgstr ""
 "Language: zh_CN\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 
-msgid "OpenAI Compatible"
-msgstr "OpenAI 兼容"
+msgid "OpenAI-compatible API (OpenAI, Groq, etc.)"
+msgstr "OpenAI 兼容 API（OpenAI、Groq 等）"
 
-msgid "Volcengine Doubao"
-msgstr "火山引擎豆包"
+msgid "WebSocket streaming (Volcengine Doubao)"
+msgstr "WebSocket 流式（火山引擎豆包）"
+
+msgid "Chat Completions format (Xiaomi MiMo)"
+msgstr "Chat Completions 格式（小米 MiMo）"
+
+msgid "HTTP multipart /audio/transcriptions (Whisper API)"
+msgstr "HTTP multipart /audio/transcriptions（Whisper API）"
+
+msgid "HTTP JSON /chat/completions (DashScope, MiMo)"
+msgstr "HTTP JSON /chat/completions（百炼、MiMo）"
+
+msgid "WebSocket streaming (OpenAI GPT Realtime)"
+msgstr "WebSocket 流式（OpenAI GPT Realtime）"
 
 msgid "API Key"
 msgstr "API 密钥"
@@ -131,9 +143,6 @@ msgstr "VAD 自动分段（免按键）"
 
 msgid "Hold hotkey to record (PTT)"
 msgstr "按住热键说话（PTT）"
-
-msgid "Xiaomi MiMo ASR"
-msgstr "小米 MiMo ASR"
 
 msgid "按住说话热键"
 msgstr "按住说话热键"

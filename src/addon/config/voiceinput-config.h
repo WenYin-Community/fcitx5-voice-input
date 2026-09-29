@@ -13,19 +13,24 @@ namespace fcitx {
 struct AsrBackendAnnotation : public EnumAnnotation {
     void dumpDescription(RawConfig &config) const {
         EnumAnnotation::dumpDescription(config);
+        // 标签格式统一为「协议/模式（典型提供商）」：只写提供商容易让用户
+        // 误以为 MiMo 是独立协议、或以为 openai 后端只支持 OpenAI。
         config.setValueByPath("Enum/0", "openai");
-        config.setValueByPath("EnumI18n/0", _("OpenAI Compatible"));
+        config.setValueByPath("EnumI18n/0",
+            _("OpenAI-compatible API (OpenAI, Groq, etc.)"));
         config.setValueByPath("SubConfigPath/0",
             "fcitx://config/addon/voiceinput/asr/openai");
 
         config.setValueByPath("Enum/1", "volcengine");
-        config.setValueByPath("EnumI18n/1", _("Volcengine Doubao"));
+        config.setValueByPath("EnumI18n/1",
+            _("WebSocket streaming (Volcengine Doubao)"));
         config.setValueByPath("SubConfigPath/1",
             "fcitx://config/addon/voiceinput/asr/volcengine");
 
         // MiMo runs on the OpenAI-compatible engine (chat format, api-key auth)
         config.setValueByPath("Enum/2", "mimo");
-        config.setValueByPath("EnumI18n/2", _("Xiaomi MiMo ASR"));
+        config.setValueByPath("EnumI18n/2",
+            _("Chat Completions format (Xiaomi MiMo)"));
         config.setValueByPath("SubConfigPath/2",
             "fcitx://config/addon/voiceinput/asr/openai");
     }
@@ -67,11 +72,14 @@ struct ApiModeAnnotation : public EnumAnnotation {
     void dumpDescription(RawConfig &config) const {
         EnumAnnotation::dumpDescription(config);
         config.setValueByPath("Enum/0", "whisper");
-        config.setValueByPath("EnumI18n/0", _("Standard Whisper API"));
+        config.setValueByPath("EnumI18n/0",
+            _("HTTP multipart /audio/transcriptions (Whisper API)"));
         config.setValueByPath("Enum/1", "chat");
-        config.setValueByPath("EnumI18n/1", _("OpenAI chat"));
+        config.setValueByPath("EnumI18n/1",
+            _("HTTP JSON /chat/completions (DashScope, MiMo)"));
         config.setValueByPath("Enum/2", "realtime");
-        config.setValueByPath("EnumI18n/2", _("GPT Realtime (Streaming)"));
+        config.setValueByPath("EnumI18n/2",
+            _("WebSocket streaming (OpenAI GPT Realtime)"));
     }
 };
 
