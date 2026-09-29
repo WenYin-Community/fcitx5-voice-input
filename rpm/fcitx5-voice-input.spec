@@ -3,7 +3,7 @@
 %global silero_vad_commit dbacf536adadf42210f37ae50fbaf75f6235b3cf
 
 Name:           fcitx5-voice-input
-Version:        0.4.1
+Version:        0.4.2
 Release:        1%{?dist}
 Summary:        Fcitx5 voice input addon with OpenAI-compatible and Volcengine Doubao ASR
 License:        LGPL-3.0-or-later
@@ -67,6 +67,14 @@ install -Dm644 %{SOURCE1} third_party/silero-vad/src/silero_vad/data/silero_vad.
 %{_datadir}/locale/*/LC_MESSAGES/fcitx5-voice-input.mo
 
 %changelog
+* Tue Sep 29 2026 Wenyin Root <ruojiner@hotmail.com> - 0.4.2-1
+- 修复按住说话（PTT）热键：松开事件按 keysym 匹配（此前按 key code，
+  修饰键松开时的 code 不保证保留，导致录音停不下来）
+- 修复松开后再按热键无反应（流水线运行中 Start 直接返回）
+- 修复 PTT 未启用直推模式、且按帧队列空闲判断结束导致语音被截断
+- 新增 Prepare()：切换输入法时预启动线程与引擎，消除首次按下的延迟
+- 引擎未配置时按热键给出明确提示，不再谎报录音中
+
 * Tue Sep 29 2026 Wenyin Root <ruojiner@hotmail.com> - 0.4.1-1
 - 仓库迁移至 WenYin-Community，更新 URL 与维护者
 - 规格修正：%files 与实际安装布局对齐（补输入法配置与 PNG 图标）

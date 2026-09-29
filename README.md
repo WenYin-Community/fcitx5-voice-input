@@ -62,7 +62,7 @@ is no repository to enable. Install the RPM from
 Download the package matching your distro from
 [Releases](https://github.com/WenYin-Community/fcitx5-voice-input/releases)
 (filenames carry the distro tag, e.g.
-`fcitx5-voice-input_0.4.1_amd64_ubuntu-24.04.deb`):
+`fcitx5-voice-input_0.4.2_amd64_ubuntu-24.04.deb`):
 
 ```bash
 sudo apt install ./fcitx5-voice-input_*_ubuntu-24.04.deb   # Ubuntu / Debian

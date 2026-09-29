@@ -60,7 +60,7 @@ makepkg -si
 
 从 [Releases](https://github.com/WenYin-Community/fcitx5-voice-input/releases)
 下载对应发行版的包（文件名带发行版标识，如
-`fcitx5-voice-input_0.4.1_amd64_ubuntu-24.04.deb`）：
+`fcitx5-voice-input_0.4.2_amd64_ubuntu-24.04.deb`）：
 
 ```bash
 sudo apt install ./fcitx5-voice-input_*_ubuntu-24.04.deb   # Ubuntu / Debian

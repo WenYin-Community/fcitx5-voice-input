@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(fcitx5-voice-input VERSION 0.4.1 LANGUAGES CXX)
+project(fcitx5-voice-input VERSION 0.4.2 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 
@@ -316,7 +316,7 @@ set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "${CPACK_PACKAGE_HOMEPAGE_URL}")
 
 # RPM package（Fedora/openSUSE，cpack -G RPM）
 # 运行时依赖由 rpmbuild 自动生成（.so SONAME → 提供包），无需手工维护
-set(CPACK_RPM_FILE_NAME RPM-DEFAULT) # fcitx5-voice-input-0.4.1-1.x86_64.rpm
+set(CPACK_RPM_FILE_NAME RPM-DEFAULT) # fcitx5-voice-input-0.4.2-1.x86_64.rpm
 set(CPACK_RPM_PACKAGE_LICENSE "LGPL-3.0-or-later")
 set(CPACK_RPM_PACKAGE_GROUP "Unspecified")
 set(CPACK_RPM_PACKAGE_RELEASE "1")
