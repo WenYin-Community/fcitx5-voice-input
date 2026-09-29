@@ -13,7 +13,7 @@
 
 ### 1.2 范围
 - **包含**：新 AsrEngine/AsrSession 实现、16k→24k 重采样、WS 客户端线程、commit 时机、断线重连、配置项、工厂接入。
-- **不包含**（YAGNI）：翻译会话、WebRTC、多语种检测（`gpt-transcribe`）、本地 ASR 改造、LLM 后处理在实时路径的特殊优化（沿用现有通道）。
+- **不包含**（YAGNI）：翻译会话、WebRTC、多语种检测（`gpt-transcribe`）、LLM 后处理在实时路径的特殊优化（沿用现有通道）。
 
 ### 1.3 非目标（明确排除）
 - 不改变现有 whisper-1 / chat 模式与 Volcengine 引擎的行为。

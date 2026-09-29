@@ -7,7 +7,7 @@
 1. **无独立进程（daemon）** — 全部逻辑跑在 Fcitx5 addon 内部，线程隔离
 2. **无 CLI 二进制** — 配置靠 fcitx5-configtool
 3. **无 Qt GUI 依赖** — 不引入 Qt，避免 50MB+ 的依赖膨胀
-4. **默认云端 ASR** — OpenAI 兼容 API（whisper-1），预留本地 ASR 扩展接口
+4. **云端 ASR** — OpenAI 兼容 API（whisper-1）/ 火山引擎豆包流式
 5. **最小依赖** — Fcitx5 + PipeWire/PulseAudio + jsoncpp + libcurl + onnxruntime
 
 ---
@@ -513,7 +513,7 @@ fcitx5-voice-input/
 │       ├── pipeline/
 │       │   └── pipeline.cpp/.h    # 管道编排（3 队列 + 3 线程）
 │       ├── asr/
-│       │   ├── asr_engine.h      # 抽象接口（可扩展本地 ASR）
+│       │   ├── asr_engine.h      # 抽象接口
 │       │   ├── openai_asr.cpp/.h # OpenAI 兼容 ASR（后端 openai）
 │       │   └── volcengine_asr.cpp/.h # 火山引擎豆包 ASR（后端 volcengine）
 │       └── utils/
@@ -551,7 +551,6 @@ fcitx5-voice-input/
 - [x] fcitx5-configtool 配置界面
 
 ### Phase 2: 扩展 ⏳
-- [ ] 本地 ASR 引擎（通过 AsrEngine 接口扩展）
 - [ ] Command 引擎（外部命令云 ASR）
 - [ ] LLM 后处理（纠错/翻译/格式化）
 - [ ] 场景系统
@@ -570,9 +569,6 @@ A: ASR 线程独立运行，崩溃后 pipeline 会自动停止。但当前实现
 
 ### Q: 主线程不是还卡？
 A: 主线程只负责事件分发和上屏。音频捕获（实时音频）在独立线程，HTTP ASR 请求（网络 IO 密集型）也在独立线程。唯一的"卡"是主线程的 `PollResults()` 轮询，但只做队列读取和 `commitString()`，微秒级操作。
-
-### Q: 为什么默认用 OpenAI API 而不是本地 ASR？
-A: 当前阶段以中文语音输入为主，云端 Whisper 在中文准确率上优于可用的开源离线方案。未来通过 `AsrEngine` 接口扩展本地引擎。
 
 ### Q: 没有高级 JSON 配置层了？
 A: 是的。`FCITX_CONFIGURATION` 宏已能满足当前所有配置需求（ASR 后端 + OpenAI 参数 + VAD 参数）。将来场景系统需要复杂结构时可能重新引入 JSON 配置。

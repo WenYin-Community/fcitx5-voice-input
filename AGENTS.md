@@ -41,7 +41,7 @@ src/addon/
 ├── vad/vad.cpp/.h         # VADWorker（Idle/Speaking 状态机, pre-roll, 队列消费/生产）
 ├── pipeline/pipeline.cpp/.h   # 管道编排（FrameQueue/UtteranceQueue/ResultQueue + 3 worker 线程）
 ├── asr/
-│   ├── asr_engine.h       # 抽象接口（Start/FeedAudio/Stop，可扩展本地 ASR）
+│   ├── asr_engine.h       # 抽象接口（Start/FeedAudio/Stop）
 │   └── openai_asr.cpp/.h  # OpenAI 兼容 ASR（默认，HTTP multipart WAV）
 └── utils/
     ├── audio_buffer.h     # Lock-free SPSC ring buffer（仅 PipeWire 内部使用）

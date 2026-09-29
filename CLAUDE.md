@@ -62,7 +62,7 @@ src/addon/
 │   └── vad.*                  # VADWorker 状态机（pre-roll 缓冲、静音超时分段）
 ├── pipeline/pipeline.*        # Pipeline 编排器（3 队列 + 3 线程生命周期管理）
 ├── asr/
-│   ├── asr_engine.h           # AsrEngine 抽象接口（可扩展本地 ASR）
+│   ├── asr_engine.h           # AsrEngine 抽象接口
 │   └── openai_asr.*           # OpenAI 兼容 ASR 实现（HTTP multipart WAV）
 └── utils/
     ├── audio_buffer.h         # AudioRingBuffer — Lock-free SPSC（仅 PipeWire 内部使用）

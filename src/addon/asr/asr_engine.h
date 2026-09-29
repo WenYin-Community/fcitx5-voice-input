@@ -19,10 +19,6 @@ public:
         // Common
         std::string modelName;
 
-        // Sherpa-onnx (local)
-        std::string modelPath;
-        int numThreads = 4;
-
         // OpenAI-compatible (cloud)
         std::string apiEndpoint;
         std::string apiKey;

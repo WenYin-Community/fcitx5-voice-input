@@ -1,13 +1,9 @@
 <div align="center">
 
-<p align="center">
-  <img width="1774" alt="Banner" src="https://github.com/user-attachments/assets/d3fe33eb-6c91-4000-925b-99eb83a498a7" />
-</p>
-
 # fcitx5-voice-input
 
 <p>
-  <a href="https://github.com/devcxl/fcitx5-voice-input/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/devcxl/fcitx5-voice-input/build.yml?branch=main&logo=github&label=build" alt="Build"></a>
+  <a href="https://github.com/WenYin-Community/fcitx5-voice-input/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/WenYin-Community/fcitx5-voice-input/ci.yml?branch=main&logo=github&label=build" alt="Build"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-LGPL%20v3-blue.svg" alt="License"></a>
   <img src="https://img.shields.io/badge/platform-Linux-important" alt="Platform">
   <img src="https://img.shields.io/badge/fcitx5-%3E%3D5.1.19-blueviolet" alt="Fcitx5">
@@ -32,10 +28,6 @@
 - 通过 `fcitx5-configtool` 图形化配置
 - 窗口快速切换自动延迟停止，防止误停
 
-<p align="center">
-  <img width="720" alt="演示" src="https://github.com/user-attachments/assets/48164962-deba-4328-bf26-70cd258f86a6" />
-</p>
-
 ## 使用
 
 ### 1. 安装
@@ -51,6 +43,29 @@ git clone https://aur.archlinux.org/fcitx5-voice-input.git
 cd fcitx5-voice-input
 makepkg -si
 ```
+
+#### COPR (Fedora / openSUSE)
+
+```bash
+# Fedora
+sudo dnf copr enable wenyinos/fcitx5-voice-input
+sudo dnf install fcitx5-voice-input
+```
+
+#### DEB / RPM 安装包
+
+从 [Releases](https://github.com/WenYin-Community/fcitx5-voice-input/releases)
+下载对应发行版的包（文件名带发行版标识，如
+`fcitx5-voice-input_0.4.1_amd64_ubuntu-24.04.deb`）：
+
+```bash
+sudo apt install ./fcitx5-voice-input_*_ubuntu-24.04.deb   # Ubuntu / Debian
+sudo dnf install ./fcitx5-voice-input-*.fedora-44.rpm      # Fedora / openSUSE
+```
+
+> Ubuntu 24.04 与 Debian 12 官方仓库没有 onnxruntime，需先自行安装其运行时
+> （可从 [onnxruntime releases](https://github.com/microsoft/onnxruntime/releases)
+> 获取），否则 addon 无法加载。
 
 #### 手动编译安装
 
@@ -179,7 +194,7 @@ makepkg -si
 
 ```bash
 # 克隆并初始化子模块（获取 Silero VAD 模型）
-git clone https://github.com/devcxl/fcitx5-voice-input.git
+git clone https://github.com/WenYin-Community/fcitx5-voice-input.git
 cd fcitx5-voice-input
 git submodule update --init --recursive
 
@@ -204,11 +219,10 @@ sudo cmake --install build --prefix /usr
 ## 注意事项
 
 - **API Key 安全**：API Key 明文存储在 `~/.config/fcitx5/conf/voiceinput-openai.conf` 和 `~/.config/fcitx5/conf/voiceinput-volcengine.conf` 中，请注意文件权限
-- **网络要求**：OpenAI 后端需要网络连接。本地 ASR 可通过 AsrEngine 接口后续扩展
+- **网络要求**：所有受支持的 ASR 后端均为云服务，需要网络连接
 - **音频设备**：默认自动选择系统音频输入设备。如需指定，在 `AudioSource` 下拉框中选择。仅支持输入源（Source），不支持 Monitor 源
 - **VAD 模型**：Silero VAD 模型通过 git submodule 分发（`third_party/silero-vad/`），编译时自动复制到安装目录。构建前务必执行 `git submodule update --init --recursive`
 - **PipeWire 用户**：PulseAudio 后端也能在 pipewire-pulse 下正常工作，仅在 PulseAudio 完全不可用时 fallback 到 PipeWire 直连
-- **本地 ASR**：暂未实现。代码提供了 `AsrEngine` 抽象接口，后续可扩展本地引擎
 - **窗口切换**：快速切换窗口时插件使用延迟停止机制（200ms），不会频繁重启流水线。长时间切出后会自动停止
 
 ## 架构简介

@@ -1,13 +1,9 @@
 <div align="center">
 
-<p align="center">
-  <img width="1774" alt="Banner" src="https://github.com/user-attachments/assets/ecd6665e-937a-4e81-8472-bd065dd5261f" />
-</p>
-
 # fcitx5-voice-input
 
 <p>
-  <a href="https://github.com/devcxl/fcitx5-voice-input/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/devcxl/fcitx5-voice-input/build.yml?branch=main&logo=github&label=build" alt="Build"></a>
+  <a href="https://github.com/WenYin-Community/fcitx5-voice-input/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/WenYin-Community/fcitx5-voice-input/ci.yml?branch=main&logo=github&label=build" alt="Build"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-LGPL%20v3-blue.svg" alt="License"></a>
   <img src="https://img.shields.io/badge/platform-Linux-important" alt="Platform">
   <img src="https://img.shields.io/badge/fcitx5-%3E%3D5.1.19-blueviolet" alt="Fcitx5">
@@ -32,10 +28,6 @@
 - Graphical configuration via `fcitx5-configtool`
 - Smart delayed stop on window switching
 
-<p align="center">
-  <img width="720" alt="Demo" src="https://github.com/user-attachments/assets/48164962-deba-4328-bf26-70cd258f86a6" />
-</p>
-
 ## Usage
 
 ### 1. Installation
@@ -51,6 +43,31 @@ git clone https://aur.archlinux.org/fcitx5-voice-input.git
 cd fcitx5-voice-input
 makepkg -si
 ```
+
+#### COPR (Fedora / openSUSE)
+
+```bash
+# Fedora
+sudo dnf copr enable wenyinos/fcitx5-voice-input
+sudo dnf install fcitx5-voice-input
+```
+
+#### DEB / RPM packages
+
+Download the package matching your distro from
+[Releases](https://github.com/WenYin-Community/fcitx5-voice-input/releases)
+(filenames carry the distro tag, e.g.
+`fcitx5-voice-input_0.4.1_amd64_ubuntu-24.04.deb`):
+
+```bash
+sudo apt install ./fcitx5-voice-input_*_ubuntu-24.04.deb   # Ubuntu / Debian
+sudo dnf install ./fcitx5-voice-input-*.fedora-44.rpm      # Fedora / openSUSE
+```
+
+> Ubuntu 24.04 and Debian 12 do not ship onnxruntime in their repositories;
+> install its runtime yourself first (see
+> [onnxruntime releases](https://github.com/microsoft/onnxruntime/releases)),
+> otherwise the addon cannot be loaded.
 
 #### Build from source
 
@@ -178,7 +195,7 @@ When switching windows, the plugin delays stop by 200ms. Quick switch-back cance
 
 ```bash
 # Clone and init submodules (for Silero VAD model)
-git clone https://github.com/devcxl/fcitx5-voice-input.git
+git clone https://github.com/WenYin-Community/fcitx5-voice-input.git
 cd fcitx5-voice-input
 git submodule update --init --recursive
 
@@ -203,11 +220,10 @@ sudo cmake --install build --prefix /usr
 ## Notes
 
 - **API Key Security**: API keys are stored in plain text in `~/.config/fcitx5/conf/voiceinput-openai.conf` and `~/.config/fcitx5/conf/voiceinput-volcengine.conf`. Ensure proper file permissions
-- **Network Required**: OpenAI backend requires internet. Local ASR can be added via the AsrEngine interface
+- **Network Required**: All supported ASR backends are cloud services; an internet connection is required
 - **Audio Device**: Auto-selects system default input. To specify a device, choose from the `AudioSource` dropdown. Only input sources are listed (no Monitor sources)
 - **VAD Model**: The Silero VAD model is distributed via git submodule (`third_party/silero-vad/`) and copied to the install directory at build time. Run `git submodule update --init --recursive` before building
 - **PipeWire Users**: The PulseAudio backend works fine under pipewire-pulse. Native PipeWire is only used as fallback when PulseAudio is completely unavailable
-- **Local ASR**: Not yet implemented. The codebase provides an `AsrEngine` abstract interface for future local ASR integration
 - **Window Switching**: A 200ms delayed stop prevents unnecessary restarts on quick window switches. Long inactivity will stop the pipeline
 
 ## Architecture Overview
