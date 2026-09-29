@@ -18,10 +18,11 @@ WORK_DIR="dist/aur/pkg"
 
 mkdir -p "${WORK_DIR}"
 
-# Feed PKGBUILD + source tarball into build directory (makepkg reuses the local
-# tarball when the filename matches the source= entry)
+# Feed PKGBUILD + downloaded sources into build directory (makepkg reuses a
+# local file when its filename matches the source= entry, so the build stays
+# hermetic and the recorded checksums are the ones being verified)
 cp "${OUT_DIR}/PKGBUILD" "${WORK_DIR}/"
-cp "${OUT_DIR}"/src/*.tar.gz "${WORK_DIR}/"
+cp "${OUT_DIR}"/src/* "${WORK_DIR}/"
 
 # makepkg must not run as root
 if ! id builder &>/dev/null; then

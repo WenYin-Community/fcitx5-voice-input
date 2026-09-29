@@ -283,14 +283,23 @@ endif()
 # ─── Packaging ──────────────────────────────────────────────────────────────
 set(CPACK_PACKAGE_NAME "fcitx5-voice-input")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Fcitx5 voice input addon")
-set(CPACK_PACKAGE_VENDOR "devcxl")
-set(CPACK_PACKAGE_CONTACT "64475363+devcxl@users.noreply.github.com")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Fcitx5 voice input addon with ASR via OpenAI-compatible API")
+set(CPACK_PACKAGE_VENDOR "WenYin Community")
+set(CPACK_PACKAGE_CONTACT "Wenyin Root <ruojiner@hotmail.com>")
+set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/WenYin-Community/fcitx5-voice-input")
+# 详细描述（DEB/RPM 正文，首行已由 SUMMARY 提供）
+set(CPACK_PACKAGE_DESCRIPTION
+"Captures audio via PulseAudio (or PipeWire fallback), detects speech
+segments with Silero ONNX VAD, and transcribes via OpenAI-compatible or
+Volcengine Doubao streaming ASR. Supports VAD auto-segmentation and
+push-to-talk, with optional LLM post-processing.")
 
 # DEB package
 set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
-set(CPACK_DEBIAN_PACKAGE_MAINTAINER "devcxl <64475363+devcxl@users.noreply.github.com>")
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Wenyin Root <ruojiner@hotmail.com>")
 set(CPACK_DEBIAN_PACKAGE_SECTION "libs")
+# 正文描述需显式设置：CPack 默认描述文件会盖掉 CPACK_PACKAGE_DESCRIPTION
+set(CPACK_DEBIAN_PACKAGE_DESCRIPTION "${CPACK_PACKAGE_DESCRIPTION}")
 # 以下三项为各发行版默认值，CI 矩阵按发行版覆盖（cmake -D 传入，见
 # .github/actions/build/distro/*.sh）：
 # - 依赖名随 t64 迁移/发行版变化（libcurl4t64 vs libcurl4）；
@@ -303,13 +312,20 @@ set(CPACK_DEBIAN_PACKAGE_DEPENDS "fcitx5, libjsoncpp25, libcurl4t64, zlib1g" CAC
 # 与 CMake 构建期的可选探测保持一致——缺任一后端时包仍可安装使用另一个
 set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "libpipewire-0.3-0 | libpulse0" CACHE STRING "DEB recommended capture backends (per-distro, set by CI)")
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS OFF CACHE BOOL "Compute DEB dependencies with dpkg-shlibdeps (ON when onnxruntime is a system package)")
-set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/devcxl/fcitx5-voice-input")
+set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "${CPACK_PACKAGE_HOMEPAGE_URL}")
 
 # RPM package（Fedora/openSUSE，cpack -G RPM）
 # 运行时依赖由 rpmbuild 自动生成（.so SONAME → 提供包），无需手工维护
-set(CPACK_RPM_FILE_NAME RPM-DEFAULT) # fcitx5-voice-input-0.4.0-1.x86_64.rpm
+set(CPACK_RPM_FILE_NAME RPM-DEFAULT) # fcitx5-voice-input-0.4.1-1.x86_64.rpm
 set(CPACK_RPM_PACKAGE_LICENSE "LGPL-3.0-or-later")
 set(CPACK_RPM_PACKAGE_GROUP "Unspecified")
 set(CPACK_RPM_PACKAGE_RELEASE "1")
+set(CPACK_RPM_PACKAGE_URL "${CPACK_PACKAGE_HOMEPAGE_URL}")
+set(CPACK_RPM_PACKAGE_DESCRIPTION "${CPACK_PACKAGE_DESCRIPTION}")
+# 录音库为运行期 dlopen，不会产生 SONAME 依赖，需手工声明 Recommends，
+# 否则 RPM 装完可能完全没有可用的录音后端。按 soname 声明可跨发行版成立
+# （Fedora 的 pulseaudio-libs/pipewire-libs 与 openSUSE 的 libpulse0/
+# libpipewire-0_3-0 名称不同，写成 soname 无需逐发行版维护）
+set(CPACK_RPM_PACKAGE_RECOMMENDS "libpulse.so.0, libpipewire-0.3.so.0")
 
 include(CPack)

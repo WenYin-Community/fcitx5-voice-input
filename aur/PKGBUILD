@@ -1,12 +1,12 @@
-# Maintainer: devcxl <64475363+devcxl@users.noreply.github.com>
+# Maintainer: Wenyin Root <ruojiner@hotmail.com>
 
 pkgname=fcitx5-voice-input
 pkgver=0.4.1
 pkgrel=1
 pkgdesc="Fcitx5 voice input addon with OpenAI-compatible and Volcengine Doubao ASR"
 arch=('x86_64')
-url="https://github.com/devcxl/fcitx5-voice-input"
-license=('Apache')
+url="https://github.com/WenYin-Community/fcitx5-voice-input"
+license=('LGPL-3.0-or-later')
 options=('!debug')
 depends=(
     'fcitx5'
@@ -15,14 +15,31 @@ depends=(
     'onnxruntime-cpu'
     'zlib'
 )
-# 录音后端为可选依赖，至少安装其一（都不装则无法录音）
+# 两个采集库都在运行期 dlopen，编译期至少需要一个；两者都装才启用全部后端
 optdepends=(
-    'pipewire: PipeWire capture backend (required for recording)'
-    'libpulse: PulseAudio capture backend (required for recording)'
+    'libpulse: PulseAudio capture backend'
+    'pipewire: PipeWire direct capture fallback backend'
 )
-makedepends=('cmake' 'pkg-config' 'gettext')
-source=("${pkgname}-${pkgver}.tar.gz::https://github.com/devcxl/${pkgname}/archive/refs/tags/v${pkgver}.tar.gz")
-sha256sums=('SKIP')
+makedepends=('cmake' 'pkg-config' 'gettext' 'libpulse' 'pipewire')
+
+# GitHub 标签归档不含 git 子模块内容（Silero VAD 模型），因此单独取一份：
+# 固定到子模块 commit，URL 不可变，校验和随 PKGBUILD 一起维护
+_silero_vad_commit=dbacf536adadf42210f37ae50fbaf75f6235b3cf
+
+source=(
+    "${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz"
+    "silero_vad.onnx::https://raw.githubusercontent.com/snakers4/silero-vad/${_silero_vad_commit}/src/silero_vad/data/silero_vad.onnx"
+)
+# 发布流程会注入第一项（标签归档）的真实校验和，见
+# .github/actions/aur/prepare.sh；第二项为固定模型的校验和
+sha256sums=('SKIP' '1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3')
+
+prepare() {
+    cd "${srcdir}/${pkgname}-${pkgver}"
+    # CMake 在模型缺失时直接报错，先把子模块路径补齐
+    install -Dm644 "${srcdir}/silero_vad.onnx" \
+        third_party/silero-vad/src/silero_vad/data/silero_vad.onnx
+}
 
 build() {
     cd "${srcdir}/${pkgname}-${pkgver}"
