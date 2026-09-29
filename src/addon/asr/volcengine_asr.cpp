@@ -219,9 +219,11 @@ bool ParseServerMessage(const std::vector<uint8_t>& frame, ServerMessage& msg) {
     size_t offset = headerSize;
     if (msg.type == kMsgFullServerResponse &&
         (msg.flags == kFlagPositiveSequence || msg.flags == kFlagFinalSequence)) {
-        if (frame.size() < offset + 4) return false; offset += 4;
+        if (frame.size() < offset + 4) return false;
+        offset += 4;
     } else if (msg.type == kMsgError) {
-        if (frame.size() < offset + 4) return false; offset += 4;
+        if (frame.size() < offset + 4) return false;
+        offset += 4;
     }
     if (frame.size() < offset + 4) return false;
     uint32_t payloadSize = ReadUint32Be(frame.data() + offset);

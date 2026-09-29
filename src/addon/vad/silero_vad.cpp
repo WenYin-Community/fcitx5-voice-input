@@ -82,6 +82,7 @@ bool SileroVad::Init(const std::string& modelPath) {
         return false;
     }
 #else
+    static_cast<void>(modelPath);
     FCITX_WARN() << "[voice-input:vad] ENABLE_SILERO_VAD not defined";
     return false;
 #endif
@@ -152,6 +153,8 @@ float SileroVad::Predict(const int16_t* pcm, size_t samples) {
         return -1.0f;
     }
 #else
+    static_cast<void>(pcm);
+    static_cast<void>(samples);
     return -1.0f;
 #endif
 }
