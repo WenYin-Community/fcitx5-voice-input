@@ -87,43 +87,55 @@ Then open the Addon config for **VoiceInput**:
 
 #### Main Config
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `ActiveBackend` | ASR backend | `openai` |
-| `VoiceInputMode` | Recording mode: `vad` (hands-free auto-segment) or `ptt` (hold hotkey to record) | `vad` |
-| `PTTHotkey` | Push-to-talk hotkey (used when `VoiceInputMode=ptt`) | Right Ctrl |
-| `VADThreshold` | VAD sensitivity (0-100), higher = less sensitive | `20` |
-| `SilenceThresholdMs` | Silence duration to end utterance (ms) | `800` |
-| `StartFrames` | Consecutive speech frames to trigger onset | `2` |
-| `PreRollMs` | Audio before onset to include (ms) | `300` |
-| `MinSpeechMs` | Minimum utterance duration (ms) | `300` |
-| `MaxSpeechMs` | Maximum utterance duration (ms) | `30000` |
+The "UI option" column is the label shown in the config page, followed by the
+config-file key in parentheses (useful when editing
+`~/.config/fcitx5/conf/voiceinput*.conf` by hand).
 
-Select your backend from the `ActiveBackend` dropdown, then click the gear button ⚙ to open that backend's config page.
+> **Note:** option labels are Chinese-only in the current source (they are not
+> translated), so an English UI shows the same Chinese labels listed below.
+> Dropdown *values* are localized, so they read English or Chinese depending
+> on your locale; the values below are the English ones.
+
+| UI option | Description | Default |
+|-----------|-------------|---------|
+| `当前 ASR 后端` (`ActiveBackend`) | Which ASR backend to use (see the values below); the gear button ⚙ opens that backend's sub-config | `OpenAI-compatible API (OpenAI, Groq, etc.)` |
+| `录音模式` (`VoiceInputMode`) | `VAD Auto-segment (hands-free)` segments speech automatically, or `Hold hotkey to record (PTT)` records while the hotkey is held | `VAD Auto-segment (hands-free)` |
+| `按住说话热键` (`PTTHotkey`) | Hotkey to hold while recording (PTT mode only) | Right Ctrl |
+| `语音检测阈值 (%)` (`VADThreshold`) | VAD sensitivity, 0–100; higher = less sensitive | `20` |
+| `静音检测阈值 (毫秒)` (`SilenceThresholdMs`) | Silence duration that ends an utterance, 100–10000 | `800` |
+| `启动帧数` (`StartFrames`) | Consecutive speech frames required to start, 1–10 | `2` |
+| `预卷时长 (毫秒)` (`PreRollMs`) | Audio kept from before speech onset, 0–1000 | `300` |
+| `最短语音时长 (毫秒)` (`MinSpeechMs`) | Utterances shorter than this are discarded, 100–10000 | `300` |
+| `最长语音时长 (毫秒)` (`MaxSpeechMs`) | Longest utterance before a forced split, 1000–60000 | `30000` |
+
+`当前 ASR 后端` values: `OpenAI-compatible API (OpenAI, Groq, etc.)`,
+`WebSocket streaming (Volcengine Doubao)`, `Chat Completions format (Xiaomi MiMo)`.
+
+Select the backend in `当前 ASR 后端`, then click the gear button ⚙ to open that backend's config page.
 
 #### OpenAI Backend (sub-config)
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `BaseUrl` | API base URL | `https://api.openai.com/v1` |
-| `ApiKey` | API Key | **(required)** |
-| `Model` | Model name | `whisper-1` |
-| `Language` | Output language | `auto` (English/中文) |
-| `ApiMode` | API mode: `whisper` (standard Whisper API), `chat` (DashScope Chat Completions) or `realtime` (GPT Realtime streaming transcription) | `whisper` |
-| `CommitIntervalMs` | Periodic commit interval (ms) in realtime mode; keeps emitting partials for long speech with no pauses | `5000` |
-| `LLMEnabled` | LLM post-processing | `false` |
-| `LLMModel` | Post-processing LLM model | (empty) |
-| `LLMSystemPrompt` | Post-processing system prompt | (empty) |
-| `AutoCommit` | Auto-commit when no LLM | `true` |
+| UI option | Description | Default |
+|-----------|-------------|---------|
+| `接口地址` (`BaseUrl`) | API base URL | `https://api.openai.com/v1` |
+| `API 密钥` (`ApiKey`) | API key | **(required)** |
+| `语音模型` (`Model`) | Model name | `whisper-1` |
+| `输出语言` (`Language`) | Output language: `Default (Auto)` / `English` / `中文` | `Default (Auto)` |
+| `LLM 后处理` (`LLMEnabled`) | Enable LLM post-processing | off |
+| `后处理 LLM 模型` (`LLMModel`) | Post-processing model (empty = disabled) | (empty) |
+| `后处理系统提示词` (`LLMSystemPrompt`) | Post-processing system prompt | (empty) |
+| `无 LLM 时自动上屏` (`AutoCommit`) | Commit the result directly when no LLM is configured | on |
+| `API 模式` (`ApiMode`) | `HTTP multipart /audio/transcriptions (Whisper API)`, `HTTP JSON /chat/completions (DashScope, MiMo)` or `WebSocket streaming (OpenAI GPT Realtime)` | `HTTP multipart /audio/transcriptions (Whisper API)` |
+| `实时提交间隔 (毫秒)` (`CommitIntervalMs`) | Periodic commit interval in Realtime mode, 1000–30000; keeps long speech without pauses producing partials | `5000` |
 
-Set `ActiveBackend=openai`, click the gear button, and fill in your API Key. Compatible with any OpenAI-format service:
+Select `OpenAI-compatible API (OpenAI, Groq, etc.)` in `当前 ASR 后端`, click the gear button, and fill in your API key. Compatible with any OpenAI-format service:
 
 - [OpenAI](https://platform.openai.com/) — `https://api.openai.com/v1`
 - [Groq](https://console.groq.com/) — `https://api.groq.com/openai/v1`
 - [SiliconFlow](https://cloud.siliconflow.com) — `https://api.siliconflow.com/v1`
 - [Alibaba Cloud DashScope](https://help.aliyun.com/zh/model-studio/qwen-asr-api-reference) — `https://dashscope.aliyuncs.com/compatible-mode/v1`
 
-  **Note:** DashScope's `qwen3-asr-flash` model uses Chat Completions API instead of the standard Whisper API. Set `ApiMode=chat` when using this provider.
+  **Note:** DashScope's `qwen3-asr-flash` model uses the Chat Completions API instead of the standard Whisper API. Set `API 模式` to `HTTP JSON /chat/completions (DashScope, MiMo)` when using this provider. Equivalent config file entries:
   ```
   BaseUrl=https://dashscope.aliyuncs.com/compatible-mode/v1
   ApiKey=your_dashscope_api_key
@@ -132,7 +144,7 @@ Set `ActiveBackend=openai`, click the gear button, and fill in your API Key. Com
   Language=zh
   ```
 
-  **GPT Realtime streaming (optional):** Set `ApiMode=realtime` to transcribe incrementally (partials update the preedit live, final commits on speech end) via the OpenAI Realtime transcription session. With an OpenAI account, use `gpt-live-transcribe` (recommended, true continuous deltas) or `gpt-realtime-whisper` (compatible alternative).
+  **GPT Realtime streaming (optional):** set `API 模式` to `WebSocket streaming (OpenAI GPT Realtime)` to transcribe incrementally (partials update the preedit live, the final result commits on speech end) via the OpenAI Realtime transcription session. With an OpenAI account, use `gpt-live-transcribe` (recommended, true continuous deltas) or `gpt-realtime-whisper` (compatible alternative).
   ```
   BaseUrl=https://api.openai.com/v1
   ApiKey=your_openai_api_key
@@ -142,26 +154,26 @@ Set `ActiveBackend=openai`, click the gear button, and fill in your API Key. Com
   ```
   **Note:** Realtime mode requires a WebSocket-capable endpoint, and `gpt-live-transcribe` / `gpt-realtime-whisper` need a paid-tier account (Free is not supported). Audio is sent at 24kHz (the addon automatically upsamples the captured 16kHz).
 
-  **Xiaomi MiMo ASR (optional):** Set `ActiveBackend=mimo` to use [Xiaomi MiMo](https://mimo.mi.com/) (`mimo-v2.5-asr`). MiMo runs on the OpenAI-compatible engine with `api-key` auth and Chat Completions format; the endpoint and model are normalized automatically, so you only need to fill in your MiMo API Key in the OpenAI sub-config.
+  **Xiaomi MiMo ASR (optional):** select `Chat Completions format (Xiaomi MiMo)` in `当前 ASR 后端` to use [Xiaomi MiMo](https://mimo.mi.com/) (`mimo-v2.5-asr`). MiMo runs on the OpenAI-compatible engine with `api-key` auth and Chat Completions format; the endpoint and model are normalized automatically, so you only need to fill in your MiMo API key in the OpenAI sub-config.
 
 #### Volcengine Doubao Backend (sub-config)
 
-Set `ActiveBackend=volcengine`, click the gear button to open the Volcengine config page.
+Select `WebSocket streaming (Volcengine Doubao)` in `当前 ASR 后端`, then click the gear button to open this page.
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `Endpoint` | WebSocket endpoint | `wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async` |
-| `AuthMode` | Auth mode: `api_key` or `app_access_key` | `api_key` |
-| `ApiKey` | API Key (new console) | **(required for api_key mode)** |
-| `AppKey` | App Key (legacy console) | **(required for app_access_key mode)** |
-| `AccessKey` | Access Token (legacy console) | **(required for app_access_key mode)** |
-| `ResourceId` | Resource ID | `volc.seedasr.sauc.duration` |
-| `ChunkMs` | Audio chunk size per packet (ms) | `200` |
-| `EnableITN` | Enable ITN text normalization | `true` |
-| `EnablePunc` | Enable punctuation | `true` |
-| `EnableDDC` | Enable DDC smoothing | `false` |
-| `EnableNonstream` | Enable second-pass recognition | `true` |
-| `EndWindowMs` | Server-side end-of-speech window (ms) | `800` |
+| UI option | Description | Default |
+|-----------|-------------|---------|
+| `WebSocket 地址` (`Endpoint`) | WebSocket endpoint | `wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async` |
+| `认证模式` (`AuthMode`) | `API Key` or `App Key + Access Key` | `API Key` |
+| `API 密钥` (`ApiKey`) | API key (new console) | **(required for `API Key` mode)** |
+| `App 密钥` (`AppKey`) | App key (legacy console) | **(required for `App Key + Access Key` mode)** |
+| `Access 密钥` (`AccessKey`) | Access token (legacy console) | **(required for `App Key + Access Key` mode)** |
+| `资源 ID` (`ResourceId`) | Resource ID | `volc.seedasr.sauc.duration` |
+| `音频分片 (毫秒)` (`ChunkMs`) | Audio chunk size per packet, 100–200 | `200` |
+| `ITN 逆文本标准化` (`EnableITN`) | ITN text normalization | on |
+| `标点符号` (`EnablePunc`) | Punctuation | on |
+| `语义顺滑` (`EnableDDC`) | DDC smoothing | off |
+| `二次识别` (`EnableNonstream`) | Second-pass recognition | on |
+| `判停窗口 (毫秒)` (`EndWindowMs`) | Server-side end-of-speech window, 200–3000 | `800` |
 
 Volcengine authentication requires a resource purchased from the [Volcengine console](https://console.volcengine.com/). The Resource ID depends on your model and purchase plan:
 

@@ -85,43 +85,47 @@ sudo dnf install ./fcitx5-voice-input-*_fedora-44.rpm     # Fedora / openSUSE
 
 #### 主配置
 
-| 配置项 | 说明 | 默认值 |
-|--------|------|--------|
-| `ActiveBackend` | ASR 后端 | `openai` |
-| `VoiceInputMode` | 录音模式：`vad`（免按键自动分段）或 `ptt`（按住热键说话） | `vad` |
-| `PTTHotkey` | 按住说话热键（`VoiceInputMode=ptt` 时生效） | 右 Ctrl |
-| `VADThreshold` | VAD 灵敏度 (0-100)，越高越不易触发 | `20` |
-| `SilenceThresholdMs` | 静音多久结束说话 (ms) | `800` |
-| `StartFrames` | 连续多少帧判定说话开始 | `2` |
-| `PreRollMs` | 说话开始前预取音频 (ms) | `300` |
-| `MinSpeechMs` | 最短有效语音段 (ms) | `300` |
-| `MaxSpeechMs` | 最长语音段后强制分段 (ms) | `30000` |
+下表「界面选项」列即配置页中显示的名称，括号内为配置文件中的键名
+（手工编辑 `~/.config/fcitx5/conf/voiceinput*.conf` 时用得上）。
+下拉框取值会随界面语言本地化，下表按中文界面列出。
 
-在下拉框选择后端后，点击齿轮按钮 ⚙ 打开对应后端的配置页。
+| 界面选项 | 说明 | 默认值 |
+|----------|------|--------|
+| `当前 ASR 后端` (`ActiveBackend`) | 选择使用哪个 ASR 后端；点齿轮按钮 ⚙ 打开该后端的子配置页 | `OpenAI 兼容 API（OpenAI、Groq 等）` |
+| `录音模式` (`VoiceInputMode`) | `VAD 自动分段（免按键）`自动检测人声分段，或 `按住热键说话（PTT）`按住热键期间录音 | `VAD 自动分段（免按键）` |
+| `按住说话热键` (`PTTHotkey`) | 按住说话的热键（仅 PTT 模式生效） | 右 Ctrl |
+| `语音检测阈值 (%)` (`VADThreshold`) | VAD 灵敏度，0–100，越高越不易触发 | `20` |
+| `静音检测阈值 (毫秒)` (`SilenceThresholdMs`) | 静音多久判定一段语音结束，100–10000 | `800` |
+| `启动帧数` (`StartFrames`) | 连续多少帧判定说话开始，1–10 | `2` |
+| `预卷时长 (毫秒)` (`PreRollMs`) | 说话开始前预取的音频时长，0–1000 | `300` |
+| `最短语音时长 (毫秒)` (`MinSpeechMs`) | 短于此长度的语音段直接丢弃，100–10000 | `300` |
+| `最长语音时长 (毫秒)` (`MaxSpeechMs`) | 超过此长度强制分段，1000–60000 | `30000` |
+
+在 `当前 ASR 后端` 中选择后端后，点击齿轮按钮 ⚙ 打开对应后端的配置页。
 
 #### OpenAI 后端（子配置）
 
-| 配置项 | 说明 | 默认值 |
-|--------|------|--------|
-| `BaseUrl` | API 地址 | `https://api.openai.com/v1` |
-| `ApiKey` | API Key | **（必填）** |
-| `Model` | 模型名 | `whisper-1` |
-| `Language` | 输出语言 | `auto`（English/中文） |
-| `ApiMode` | API 模式：`whisper`（标准 Whisper API）、`chat`（百炼 Chat Completions）或 `realtime`（GPT Realtime 流式实时转录） | `whisper` |
-| `CommitIntervalMs` | Realtime 模式下的周期性提交间隔 (ms)，长句无停顿也能持续出增量 | `5000` |
-| `LLMEnabled` | LLM 后处理 | `false` |
-| `LLMModel` | 后处理 LLM 模型 | （空） |
-| `LLMSystemPrompt` | 后处理系统提示词 | （空） |
-| `AutoCommit` | 无 LLM 时自动上屏 | `true` |
+| 界面选项 | 说明 | 默认值 |
+|----------|------|--------|
+| `接口地址` (`BaseUrl`) | API 地址 | `https://api.openai.com/v1` |
+| `API 密钥` (`ApiKey`) | API 密钥 | **（必填）** |
+| `语音模型` (`Model`) | 模型名 | `whisper-1` |
+| `输出语言` (`Language`) | 输出语言：`默认（自动）` / `English` / `中文` | `默认（自动）` |
+| `LLM 后处理` (`LLMEnabled`) | 是否启用 LLM 后处理 | 关 |
+| `后处理 LLM 模型` (`LLMModel`) | 后处理模型（留空即禁用） | （空） |
+| `后处理系统提示词` (`LLMSystemPrompt`) | 后处理系统提示词 | （空） |
+| `无 LLM 时自动上屏` (`AutoCommit`) | 未配置 LLM 时直接上屏识别结果 | 开 |
+| `API 模式` (`ApiMode`) | `HTTP multipart /audio/transcriptions（Whisper API）`、`HTTP JSON /chat/completions（百炼、MiMo）` 或 `WebSocket 流式（OpenAI GPT Realtime）` | `HTTP multipart /audio/transcriptions（Whisper API）` |
+| `实时提交间隔 (毫秒)` (`CommitIntervalMs`) | Realtime 模式下的周期性提交间隔，1000–30000，使长句无停顿也能持续输出增量 | `5000` |
 
-设置 `ActiveBackend=openai`，点击齿轮按钮，然后填入您的 API Key。支持所有 OpenAI 兼容服务，如：
+在 `当前 ASR 后端` 中选择 `OpenAI 兼容 API（OpenAI、Groq 等）`，点击齿轮按钮，然后填入 API 密钥。支持所有 OpenAI 兼容服务，如：
 
 - [OpenAI](https://platform.openai.com/) — `https://api.openai.com/v1`
 - [Groq](https://console.groq.com/) — `https://api.groq.com/openai/v1`
 - [硅基流动 (SiliconFlow)](https://siliconflow.cn/) — `https://api.siliconflow.cn/v1`
 - [阿里云百炼 (DashScope)](https://help.aliyun.com/zh/model-studio/qwen-asr-api-reference) — `https://dashscope.aliyuncs.com/compatible-mode/v1`
 
-  **注意：** 阿里云百炼使用的 `qwen3-asr-flash` 模型不走标准的 Whisper API，需要通过 Chat Completions 接口调用。使用时需将 `ApiMode` 设为 `chat`，并补充对应的 DashScope API Key。配置示例：
+  **注意：** 阿里云百炼使用的 `qwen3-asr-flash` 模型不走标准的 Whisper API，需要通过 Chat Completions 接口调用。使用时需将 `API 模式` 设为 `HTTP JSON /chat/completions（百炼、MiMo）`，并补充对应的 DashScope API 密钥。对应的配置文件写法：
   ```
   BaseUrl=https://dashscope.aliyuncs.com/compatible-mode/v1
   ApiKey=your_dashscope_api_key
@@ -131,7 +135,7 @@ sudo dnf install ./fcitx5-voice-input-*_fedora-44.rpm     # Fedora / openSUSE
   ```
   百炼 ASR 的具体接口文档请参考[阿里云官方文档](https://help.aliyun.com/zh/model-studio/qwen-asr-api-reference)。
 
-  **Realtime 流式实时转录（可选）：** 将 `ApiMode` 设为 `realtime`，即可通过 OpenAI Realtime 转录会话实现**边说边出**增量识别结果（实时刷入候选框 preedit，说话结束提交上屏）。使用 OpenAI 官方账号时，模型推荐 `gpt-live-transcribe`（官方推荐，真正连续增量）或 `gpt-realtime-whisper`（兼容备选）。配置示例：
+  **Realtime 流式实时转录（可选）：** 将 `API 模式` 设为 `WebSocket 流式（OpenAI GPT Realtime）`，即可通过 OpenAI Realtime 转录会话实现**边说边出**增量识别结果（实时刷入候选框 preedit，说话结束提交上屏）。使用 OpenAI 官方账号时，模型推荐 `gpt-live-transcribe`（官方推荐，真正连续增量）或 `gpt-realtime-whisper`（兼容备选）。配置示例：
   ```
   BaseUrl=https://api.openai.com/v1
   ApiKey=your_openai_api_key
@@ -141,26 +145,26 @@ sudo dnf install ./fcitx5-voice-input-*_fedora-44.rpm     # Fedora / openSUSE
   ```
   **注意：** Realtime 模式需要支持 WebSocket 的连接端点，且 `gpt-live-transcribe` / `gpt-realtime-whisper` 需付费 Tier 账号（Free 不支持）。音频以 24kHz 发送（插件会自动将采集的 16kHz 重采样到 24kHz）。
 
-  **小米 MiMo ASR（可选）：** `ActiveBackend` 选 `mimo` 可使用[小米 MiMo](https://mimo.mi.com/)（`mimo-v2.5-asr`）。MiMo 运行在 OpenAI 兼容引擎上，使用 `api-key` 认证与 Chat Completions 格式；端点和模型会自动归一化，只需在 OpenAI 子配置里填写小米的 API 密钥。
+  **小米 MiMo ASR（可选）：** 在 `当前 ASR 后端` 中选择 `Chat Completions 格式（小米 MiMo）` 即可使用[小米 MiMo](https://mimo.mi.com/)（`mimo-v2.5-asr`）。MiMo 运行在 OpenAI 兼容引擎上，使用 `api-key` 认证与 Chat Completions 格式；端点和模型会自动归一化，只需在 OpenAI 子配置里填写小米的 API 密钥。
 
 #### 火山引擎豆包后端（子配置）
 
-设置 `ActiveBackend=volcengine`，点击齿轮按钮打开火山引擎配置页。
+在 `当前 ASR 后端` 中选择 `WebSocket 流式（火山引擎豆包）`，然后点击齿轮按钮打开本页。
 
-| 配置项 | 说明 | 默认值 |
-|--------|------|--------|
-| `Endpoint` | WebSocket 地址 | `wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async` |
-| `AuthMode` | 认证模式：`api_key` 或 `app_access_key` | `api_key` |
-| `ApiKey` | API Key（新版控制台） | **api_key 模式必填** |
-| `AppKey` | App Key（旧版控制台） | **app_access_key 模式必填** |
-| `AccessKey` | Access Key（旧版控制台） | **app_access_key 模式必填** |
-| `ResourceId` | 资源 ID | `volc.seedasr.sauc.duration` |
-| `ChunkMs` | 单包音频长度 (ms) | `200` |
-| `EnableITN` | 启用 ITN 文本规范化 | `true` |
-| `EnablePunc` | 启用标点符号 | `true` |
-| `EnableDDC` | 启用语义顺滑 | `false` |
-| `EnableNonstream` | 启用二次识别 | `true` |
-| `EndWindowMs` | 服务端判停窗口 (ms) | `800` |
+| 界面选项 | 说明 | 默认值 |
+|----------|------|--------|
+| `WebSocket 地址` (`Endpoint`) | WebSocket 地址 | `wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async` |
+| `认证模式` (`AuthMode`) | `API 密钥` 或 `App 密钥 + Access 密钥` | `API 密钥` |
+| `API 密钥` (`ApiKey`) | API 密钥（新版控制台） | **`API 密钥` 模式必填** |
+| `App 密钥` (`AppKey`) | App 密钥（旧版控制台） | **`App 密钥 + Access 密钥` 模式必填** |
+| `Access 密钥` (`AccessKey`) | Access 密钥（旧版控制台） | **`App 密钥 + Access 密钥` 模式必填** |
+| `资源 ID` (`ResourceId`) | 资源 ID | `volc.seedasr.sauc.duration` |
+| `音频分片 (毫秒)` (`ChunkMs`) | 单包音频长度，100–200 | `200` |
+| `ITN 逆文本标准化` (`EnableITN`) | ITN 文本规范化 | 开 |
+| `标点符号` (`EnablePunc`) | 标点符号 | 开 |
+| `语义顺滑` (`EnableDDC`) | 语义顺滑 | 关 |
+| `二次识别` (`EnableNonstream`) | 二次识别 | 开 |
+| `判停窗口 (毫秒)` (`EndWindowMs`) | 服务端判停窗口，200–3000 | `800` |
 
 火山引擎需要先在[火山引擎控制台](https://console.volcengine.com/)购买语音识别资源。资源 ID 取决于模型和购买方式：
 
