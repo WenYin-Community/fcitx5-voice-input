@@ -86,8 +86,9 @@ debian-12 / debian-13 / fedora-44 / opensuse-tumbleweed），每发行版在原�
 （pkg.tar.zst）。另含链接校验（nm/readelf/dlopen smoke，仅 verify job 跑一次）
 与 build-no-pipewire 回归防护 job；每个发行版构建都跑 ctest 单元测试。
 - `release.yml`：tag `v*` 触发。复用同一构建矩阵，`softprops/action-gh-release`
-  v3 生成 draft release（含全部发行版产物 + AUR 源码包），并推送 AUR 与 COPR
-  （凭证取自组织级 secret，缺失时自动跳过）。
+  v3 生成 draft release（含全部发行版产物 + PKGBUILD 与 Arch 源码包）。
+  **不推送任何发行版仓库**：AUR 上的同名包由上游维护（非本项目），COPR 任务
+  已移除，两者都不再随发版自动发布。
 - onnxruntime 双策略：`system`（发行版系统包，DEB 开 dpkg-shlibdeps 自动依赖，
   RPM 由 rpmbuild 自动依赖）或 `download`（upstream release 1.28.0，缓存加速）。
 - Arch 包：archlinux 容器内直跑 makepkg（无 Docker daemon）。
@@ -97,8 +98,9 @@ debian-12 / debian-13 / fedora-44 / opensuse-tumbleweed），每发行版在原�
 
 ## 打包
 
-- Arch: `aur/PKGBUILD`（依赖 fcitx5/jsoncpp/curl/onnxruntime-cpu/zlib；录音后端为
-  optdepends）。Silero 模型作为固定 commit 的独立 source 下载，标签归档不含子模块。
-- RPM: CPack 自动生成（`release.yml` 的构建矩阵），另有独立 spec
-  `rpm/fcitx5-voice-input.spec` 供 COPR 构建 SRPM，模型走 `Source1`。
+- Arch: `aur/PKGBUILD` 作为 Arch 构建配方与 release 附件（不再推送 AUR）。
+  依赖 fcitx5/jsoncpp/curl/onnxruntime-cpu/zlib，录音后端为 optdepends；
+  Silero 模型作为固定 commit 的独立 source 下载，标签归档不含子模块。
+- RPM: CPack 自动生成（`release.yml` 的构建矩阵）；另有独立 spec
+  `rpm/fcitx5-voice-input.spec`，可手工 `rpmbuild` 出 SRPM/RPM，模型走 `Source1`。
 - DEB: CPack 自动生成。

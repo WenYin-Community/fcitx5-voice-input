@@ -3,6 +3,10 @@
 > 调研日期：2026-08-12（数据经 repology / Launchpad / GitHub API 实测核验）
 > 仓库现状：main 分支 v0.4.0（2026-08-11 发布），本次重构在 `refactor/build-pipeline` 分支。
 > 目的：为 workflow 重构提供依据，重点是构建流程的多发行版化。
+>
+> **后续变更（2026-09）**：下文蓝图中的 AUR 自动推送已不实施——AUR 上的
+> `fcitx5-voice-input` 由上游维护，并非本项目账号所有；COPR 任务同时移除。
+> 两个 job 都不再存在于 `release.yml`，本文件其余内容保留当时原貌。
 
 ## 1. 现状盘点（问题清单）
 

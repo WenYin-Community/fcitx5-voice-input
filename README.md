@@ -35,28 +35,27 @@
 
 #### AUR (Arch Linux)
 
+The AUR package [`fcitx5-voice-input`](https://aur.archlinux.org/packages/fcitx5-voice-input)
+belongs to the upstream project and builds from the upstream repository, not
+from this one. Installing it therefore gives you upstream's build:
+
 ```bash
 yay -S fcitx5-voice-input
-# or
-paru -S fcitx5-voice-input
-# or build manually
-git clone https://aur.archlinux.org/fcitx5-voice-input.git
-cd fcitx5-voice-input
+```
+
+To install *this* project on Arch, use the `PKGBUILD` and source tarball
+attached to [Releases](https://github.com/WenYin-Community/fcitx5-voice-input/releases):
+
+```bash
+# after downloading PKGBUILD and the source tarball into one directory
 makepkg -si
 ```
 
 #### COPR (Fedora / openSUSE)
 
-COPR publishing is wired into the release workflow but the project still has to
-be created on [copr.fedorainfracloud.org](https://copr.fedorainfracloud.org/)
-before the first tagged release can push to it. Once it exists:
-
-```bash
-sudo dnf copr enable <COPR_USER>/fcitx5-voice-input
-sudo dnf install fcitx5-voice-input
-```
-
-Until then, install the RPM from [Releases](#deb--rpm-packages) instead.
+Not published: the COPR job was removed from the release workflow, so there
+is no repository to enable. Install the RPM from
+[Releases](#deb--rpm-packages) instead.
 
 #### DEB / RPM packages
 

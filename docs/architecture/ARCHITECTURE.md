@@ -534,12 +534,13 @@ build/
 
 ### 打包
 
-- **Arch Linux**: `aur/PKGBUILD`（依赖 fcitx5 / jsoncpp / curl / onnxruntime-cpu / zlib；
-  录音后端列为 optdepends）。Silero 模型作为固定 commit 的独立 source 下载
-- **RPM**: CPack 生成（Fedora/openSUSE），另有 `rpm/fcitx5-voice-input.spec`
-  供 COPR 构建 SRPM
+- **Arch Linux**: `aur/PKGBUILD`（依赖 fcitx5 / jsoncpp / curl / onnxruntime-cpu /
+  zlib；录音后端列为 optdepends）。Silero 模型作为固定 commit 的独立 source 下载
+- **RPM**: CPack 生成（Fedora/openSUSE）；另有 `rpm/fcitx5-voice-input.spec`
+  可手工 `rpmbuild` 出 SRPM/RPM
 - **DEB**: CPack 自动生成（Ubuntu/Debian）
-- **发布**: tag `v*` 触发 `release.yml`，产出各发行版包并推送 AUR 与 COPR
+- **发布**: tag `v*` 触发 `release.yml`，产出各发行版包并生成 draft release。
+  不向发行版仓库推送：AUR 同名包归上游维护，COPR 任务已移除
 
 ---
 
@@ -590,16 +591,16 @@ fcitx5-voice-input/
 │   └── zh_CN.po                # 中文翻译
 │
 ├── aur/
-│   └── PKGBUILD                # Arch Linux 打包脚本（AUR）
+│   └── PKGBUILD                # Arch Linux 构建配方（发布为 release 附件）
 ├── rpm/
-│   └── fcitx5-voice-input.spec # RPM 规格（COPR 构建 SRPM 用）
+│   └── fcitx5-voice-input.spec # RPM 规格（可手工 rpmbuild 出 SRPM/RPM）
 │
 ├── cmake/                       # 自定义 FindXXX.cmake
 ├── tests/                       # 单元测试
 ├── .github/
 │   ├── workflows/
 │   │   ├── ci.yml               # PR/push：多发行版构建矩阵 + 测试 + 链接校验
-│   │   └── release.yml          # tag v*：发布 + AUR/COPR 推送
+│   │   └── release.yml          # tag v*：构建产物 + draft release
 │   └── actions/                 # 复用的 composite action（build / aur）
 │
 └── docs/                        # 架构、ADR、调研与开发文档
@@ -623,7 +624,7 @@ fcitx5-voice-input/
 - [x] 小米 MiMo ASR（OpenAI 兼容 chat 格式）
 - [x] 按住说话（PTT）模式 + 音量电平指示
 - [x] LLM 后处理（OpenAI 兼容 chat）
-- [x] 多发行版打包（DEB / RPM / AUR）+ AUR·COPR 自动发布
+- [x] 多发行版打包（DEB / RPM / Arch PKGBUILD）+ draft release 自动产出
 - [x] 单元测试（`tests/`，CI 内执行）
 
 ### Phase 3: 打磨 ⏳
