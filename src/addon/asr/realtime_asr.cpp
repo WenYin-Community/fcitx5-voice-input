@@ -29,8 +29,8 @@ enum class RecvStatus { Ok, Again, Closed, Error };
 void Upsample16kTo24k(const std::vector<float>& in, std::vector<float>& out) {
     out.clear();
     if (in.empty()) return;
+    // in.size() >= 1 时 outCount >= 1（1*3/2 = 1），无需再判零
     size_t outCount = in.size() * 3 / 2;
-    if (outCount == 0) return;
     out.reserve(outCount);
     for (size_t j = 0; j < outCount; ++j) {
         double pos = j * (2.0 / 3.0);

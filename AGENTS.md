@@ -47,8 +47,7 @@ src/addon/
 │   ├── realtime_asr.cpp/.h # OpenAI Realtime 流式（WS, 16k→24k）
 │   ├── volcengine_asr.cpp/.h # 火山引擎豆包流式 ASR（WS）
 │   ├── session_reaper.cpp/.h # 游离会话回收线程
-│   ├── wav_encoder.cpp/.h  # WAV 编码
-│   └── utils/base64.cpp/.h # base64（chat 模式 data URI）
+│   └── utils/base64.cpp/.h # base64（chat 模式 data URI、realtime 音频）
 ├── llm/llm_client.cpp/.h   # LLM 后处理客户端（OpenAI 兼容 chat）
 └── utils/
     ├── audio_buffer.h     # Lock-free SPSC ring buffer（仅 PipeWire 内部使用）

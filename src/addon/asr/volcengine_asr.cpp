@@ -217,12 +217,11 @@ bool ParseServerMessage(const std::vector<uint8_t>& frame, ServerMessage& msg) {
     msg.flags = frame[1] & 0x0f;
     uint8_t compression = frame[2] & 0x0f;
     size_t offset = headerSize;
-    if (msg.type == kMsgFullServerResponse &&
-        (msg.flags == kFlagPositiveSequence || msg.flags == kFlagFinalSequence)) {
-        if (frame.size() < offset + 4) return false;
-        offset += 4;
-    } else if (msg.type == kMsgError) {
-        if (frame.size() < offset + 4) return false;
+    // 带顺序号的完整响应与错误帧，都在 payload 长度前多一个 32 位字段。
+    // 此处不单独校验长度：offset 前移后下方那次校验覆盖面相同（差值恒为 4）
+    if (msg.type == kMsgError ||
+        (msg.type == kMsgFullServerResponse &&
+         (msg.flags == kFlagPositiveSequence || msg.flags == kFlagFinalSequence))) {
         offset += 4;
     }
     if (frame.size() < offset + 4) return false;
