@@ -270,13 +270,57 @@ void TestVadDirectPushShortUtterance() {
     h.worker.Start();
     h.Push(1, 0.5f);  // 32ms — would be Cancel in VAD mode
 
-    // The worker flushes when the queue is idle: Begin + Audio + End.
+    // 松手：显式请求收尾，worker 排空队列后推 End → Begin + Audio + End
+    h.worker.RequestFlush();
     auto events = h.DrainEvents(2000);
     CHECK_EQ(events.size(), 3u);
     CHECK(events[0].type == fcitx::SpeechEventType::Begin);
     CHECK(events[1].type == fcitx::SpeechEventType::Audio);
     CHECK_EQ(events[1].pcm.size(), 1u * fcitx::kWindowSize);
     CHECK(events[2].type == fcitx::SpeechEventType::End);
+}
+
+// 录音期间帧之间必然出现短暂空队列（帧间隔 32ms，worker 2ms 轮询）。
+// 没有显式收尾请求时绝不能结束语音段，否则每段都会在第一帧后被切断。
+void TestVadDirectPushNoPrematureFlush() {
+    VadTestHarness h;
+    h.worker.SetDirectPush(true);
+    h.worker.Start();
+
+    h.Push(1, 0.5f);
+    std::this_thread::sleep_for(std::chrono::milliseconds(60));  // 让队列空转
+    h.Push(1, 0.5f);
+    std::this_thread::sleep_for(std::chrono::milliseconds(60));
+    h.Push(1, 0.5f);
+    h.worker.RequestFlush();
+
+    auto events = h.DrainEvents(2000);
+    int audio = 0, ends = 0;
+    for (const auto& e : events) {
+        if (e.type == fcitx::SpeechEventType::Audio) ++audio;
+        if (e.type == fcitx::SpeechEventType::End) ++ends;
+    }
+    CHECK_EQ(audio, 3);  // 三帧都在同一段里
+    CHECK_EQ(ends, 1);   // 只有一次收尾
+}
+
+// 预启动/预停遗留的收尾请求若不清除，会在新一段录音的首个帧间隙误解发。
+void TestVadDirectPushClearFlushRequest() {
+    VadTestHarness h;
+    h.worker.SetDirectPush(true);
+    h.worker.Start();
+
+    h.worker.RequestFlush();          // 尚未开始录音时的陈旧请求
+    h.worker.ClearFlushRequest();     // Start 恢复时清除
+    h.Push(2, 0.5f);
+    h.worker.RequestFlush();          // 本次真正的松手
+
+    auto events = h.DrainEvents(2000);
+    int ends = 0;
+    for (const auto& e : events) {
+        if (e.type == fcitx::SpeechEventType::End) ++ends;
+    }
+    CHECK_EQ(ends, 1);
 }
 
 // The pre-roll buffer and the onset frame must not overlap: the frame that
@@ -321,6 +365,8 @@ int main() {
     TestVadShortUtteranceCancelled();
     TestVadMaxSpeechForceFlush();
     TestVadDirectPushShortUtterance();
+    TestVadDirectPushNoPrematureFlush();
+    TestVadDirectPushClearFlushRequest();
     TestVadOnsetFrameNotDuplicated();
 
     if (g_failures == 0) {

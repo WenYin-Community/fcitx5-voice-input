@@ -150,18 +150,24 @@ void VoiceInputEngine::activate(const InputMethodEntry& entry,
     bool wasRunning = pipeline_->IsRunning();
     bool isPTT = (config_.voiceInputMode.value() == "ptt");
 
-    if (!isPTT) {
-        // VAD mode: auto-start pipeline
-        pipeline_->Start();
+    // PTT 模式在此先把 VAD/ASR 线程拉起来但不采集，按下热键时只需开采集，
+    // 避免现场等待线程创建与音频设备打开（表现为「按下后要等一会儿才响应」）
+    bool ready = true;
+    if (!wasRunning) {
+        ready = isPTT ? pipeline_->Prepare() : pipeline_->Start();
     }
 
     FCITX_INFO() << "[voice-input] Activate: gen=" << generation
                  << " wasRunning=" << wasRunning
                  << " ptt=" << isPTT
+                 << " ready=" << ready
                  << " ic=" << (activeIc_ != nullptr);
 
     statusText_.clear();
-    if (isPTT) {
+    // 引擎/采集未就绪时必须如实告知，否则按热键毫无反应且界面仍显示就绪
+    if (!ready) {
+        SetStatus(_("语音识别未配置"));
+    } else if (isPTT) {
         SetStatus(_("按住热键说话"));
     } else {
         SetStatus(_("语音输入就绪"));
@@ -178,7 +184,7 @@ void VoiceInputEngine::deactivate(const InputMethodEntry& entry,
     FCITX_INFO() << "[voice-input] Deactivate: gen=" << generation;
 
     pttActive_ = false;
-    pttHeldKeyCode_ = 0;
+    awaitingResult_ = false;
     pttDelayedStopEvent_.reset();
     recording_.store(false);
     ClearUI();
@@ -240,13 +246,24 @@ void VoiceInputEngine::keyEvent(const InputMethodEntry& entry,
     }
     if (!isPTTKey) return;
 
-    if (keyEvent.isRelease() && keyEvent.rawKey().code() == pttHeldKeyCode_) {
-        pttHeldKeyCode_ = 0;
+    if (keyEvent.isRelease()) {
+        // 匹配松开事件时要看符号，不能看 key code：修饰键的 code 由前端提供，
+        // 按下与松开的 code 未必一致（部分前端给 0），用 code 比较会漏掉松开，
+        // 表现就是「松开后仍显示录音中」。
+        bool isHeld = false;
+        for (const auto& k : hotkeys) {
+            if (keyEvent.rawKey().isReleaseOfModifier(k) ||
+                keyEvent.rawKey().sym() == k.sym()) {
+                isHeld = true;
+                break;
+            }
+        }
+        if (!isHeld) return;
         if (pttActive_) {
             pttActive_ = false;
-            // Stop the level timer so the status stays "Recognizing..."
+            // 立即复位电平显示，状态交由「识别中…」接管
             recording_.store(false);
-            // Delayed stop: capture trailing audio for 200ms
+            // 延迟停采集：留住松开瞬间的尾音
             uint64_t gen = sessionGeneration_.load();
             pttDelayedStopEvent_ = instance_->eventLoop().addTimeEvent(
                 CLOCK_MONOTONIC, now(CLOCK_MONOTONIC) + 200000, 0,
@@ -257,17 +274,27 @@ void VoiceInputEngine::keyEvent(const InputMethodEntry& entry,
                     return true;
                 });
             pttDelayedStopEvent_->setOneShot();
+            awaitingResult_ = true;
             SetStatus(_("识别中..."));
             FCITX_INFO() << "[voice-input] PTT released";
         }
     } else if (!keyEvent.isRelease()) {
-        // Cancel pending delayed stop on new press
-        pttDelayedStopEvent_.reset();
-        pttHeldKeyCode_ = keyEvent.rawKey().code();
+        // 取消尚未触发的延迟停止，使快速连按不会打断本次录音
+        if (pttDelayedStopEvent_) {
+            pttDelayedStopEvent_.reset();
+        }
         if (!pttActive_) {
+            // Start() 在流水线仍运行时走「恢复采集」分支，不会重建线程；
+            // 若上次松开后已延迟停止过，则此处会完整重启
+            if (!pipeline_->Start()) {
+                // 未配置 ASR 引擎或采集打不开：不要谎报「录音中」
+                SetStatus(_("语音识别未配置"));
+                FCITX_WARN() << "[voice-input] PTT pressed but pipeline not ready";
+                return;
+            }
             pttActive_ = true;
+            awaitingResult_ = false;
             recording_.store(true);
-            pipeline_->Start();
             SetStatus(_("录音中..."));
             FCITX_INFO() << "[voice-input] PTT pressed";
         }
@@ -321,6 +348,7 @@ void VoiceInputEngine::PollResults() {
                     if (detail.size() > 60) detail = detail.substr(0, 60) + "...";
                     msg += ": " + detail;
                 }
+                awaitingResult_ = false;
                 SetStatus(msg);
                 continue;
             }
@@ -340,6 +368,7 @@ void VoiceInputEngine::PollResults() {
                     activeIc_->commitString(result.text);
                     activeIc_->inputPanel().reset();
                     activeIc_->updateUserInterface(UserInterfaceComponent::InputPanel);
+                    awaitingResult_ = false;
                     SetStatus(_("语音输入就绪"));
                     pendingPreeditText_.clear();
                     pendingPreeditUtteranceId_ = 0;
@@ -375,6 +404,7 @@ void VoiceInputEngine::PollResults() {
                     activeIc_->commitString(result.text);
                     activeIc_->inputPanel().reset();
                     activeIc_->updateUserInterface(UserInterfaceComponent::InputPanel);
+                    awaitingResult_ = false;
                     SetStatus(_("语音输入就绪"));
                     pendingPreeditText_.clear();
                     pendingPreeditUtteranceId_ = 0;
@@ -571,7 +601,11 @@ void VoiceInputEngine::InitializeIfNeeded() {
                 });
             } else {
                 recording_.store(false);
-                SetStatus(_("语音输入就绪"));
+                // 松手后仍可能有一次 End 回调；此时应保持「识别中…」，
+                // 否则状态会先跳到就绪再被结果刷新，看起来像识别没发生
+                if (!awaitingResult_) {
+                    SetStatus(_("语音输入就绪"));
+                }
             }
         });
 

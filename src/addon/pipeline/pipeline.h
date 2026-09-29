@@ -39,9 +39,13 @@ public:
     void SetLevelCallback(VADWorker::LevelCallback cb);
     void SetGeneration(uint64_t gen) { generation_.store(gen); }
 
-    void Start();
+    bool Start();
+    // PTT 预启动：先把 VAD/ASR 线程拉起来但不采集，待按下热键时只需开采集
+    bool Prepare();
     void Stop();
-    void StopCapture();  // Stop audio capture only (non-blocking, PTT release)
+    // 只停音频采集（PTT 松开）：VAD/ASR 线程保留，让在途会话仍能跑完出结果。
+    // 采集停掉后再次 Start 会走恢复路径，不会重建线程。
+    void StopCapture();
     void Abort();
     bool IsRunning() const { return running_.load(); }
 
@@ -51,6 +55,8 @@ public:
 
 private:
     bool StartCapture();
+    bool StartWorkers(bool withCapture);
+    void ApplyVadMode();
     void AsrDispatcherLoop();
 
     // Queues（带容量上限：超限丢最旧，防止异常路径下内存无界增长）
@@ -83,6 +89,8 @@ private:
 
     // State
     std::atomic<bool> running_{false};
+    // PTT：采集被 StopCapture 暂停、但流水线仍在运行（见 Start 的恢复分支）
+    bool capturePaused_ = false;
     std::atomic<uint64_t> generation_{0};
     std::atomic<uint64_t> utteranceCounter_{0};
     // 回调守卫：Abort 后置 false，引擎 worker 线程的异步回调据此丢弃

@@ -48,7 +48,20 @@ public:
 
     // When true (PTT mode), skip the VAD model and emit Begin/Audio/End
     // events for all captured audio; short utterances are not filtered.
-    void SetDirectPush(bool direct) { directPush_ = direct; }
+    // 原子量：主线程可在 worker 运行期间切换模式（setConfig 热加载）
+    void SetDirectPush(bool direct) {
+        directPush_.store(direct);
+        // 切换模式时把上一模式未收尾的语音段结束掉，避免会话悬挂
+        if (!direct) flushRequested_.store(true);
+    }
+
+    // PTT 松开、采集停止后由主线程调用：把当前语音段收尾（推 End）。
+    // 显式请求而非用「队列空闲」推断，否则正常录音的帧间隙会被误判为结束。
+    void RequestFlush() { flushRequested_.store(true); }
+
+    // 恢复采集时清除未兑现的收尾请求。必须在开始新一段录音前调用，
+    // 否则上一次（如激活时的预停）留下的请求会在新段首个帧间隙里误解发。
+    void ClearFlushRequest() { flushRequested_.store(false); }
 
     // Test seam: overrides the model created in Start().
     void SetVadModel(std::unique_ptr<VadModel> model);
@@ -84,8 +97,9 @@ private:
     LevelCallback levelCb_;
 
     // Direct push mode (PTT): skip VAD model
-    bool directPush_ = false;
+    std::atomic<bool> directPush_{false};
     bool sessionActive_ = false;  // directPush 会话进行中
+    std::atomic<bool> flushRequested_{false};
 
     // Session state
     enum class State { Idle, Speaking };

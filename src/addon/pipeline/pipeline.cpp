@@ -51,6 +51,17 @@ void Pipeline::Init(const VoiceInputConfig& config) {
     vadWorker_->SetConfig(vadConfig);
     vadWorker_->SetFrameQueue(&frameQueue_);
     vadWorker_->SetSpeechEventQueue(&speechEventQueue_);
+    ApplyVadMode();
+}
+
+// PTT 模式跳过 VAD 模型，由 VADWorker 直推音频；VAD 模式则启用 Silero 分段。
+// 两个入口（Init / SetConfig）都要调用——此前只在 VADWorker 里保留了这个开关
+// 却无人设置，于是 PTT 模式实际仍在跑 Silero 分段。
+void Pipeline::ApplyVadMode() {
+    bool ptt = (config_.voiceInputMode.value() == "ptt");
+    vadWorker_->SetDirectPush(ptt);
+    FCITX_INFO() << "[voice-input] VAD mode: "
+                 << (ptt ? "direct push (PTT)" : "Silero segmentation");
 }
 
 void Pipeline::SetConfig(const VoiceInputConfig& config) {
@@ -67,6 +78,7 @@ void Pipeline::SetConfig(const VoiceInputConfig& config) {
     vadConfig.minSpeechMs = config_.minSpeechMs.value();
     vadConfig.maxSpeechMs = config_.maxSpeechMs.value();
     vadWorker_->SetConfig(vadConfig);
+    ApplyVadMode();
 }
 
 void Pipeline::SetLLMClient(std::unique_ptr<LLMClient> client) {
@@ -182,21 +194,57 @@ void Pipeline::SetLevelCallback(VADWorker::LevelCallback cb) {
 }
 
 void Pipeline::StopCapture() {
+    // PTT 松开：必须先停采集（Stop 会 join 采集线程，此后不再有新帧入队），
+    // 再请求收尾。反过来做会让 worker 在采集线程仍在产帧时看到「队列暂空」
+    // 而提前收尾，丢掉尾部音频。
     if (capture_) {
         capture_->Stop();
+        capturePaused_ = running_.load();
         FCITX_INFO() << "[voice-input] Capture stopped (PTT release)";
+    } else if (running_) {
+        // 预启动状态（Prepare）尚未开采集，同样进入暂停态
+        capturePaused_ = true;
+    }
+    // 队列里可能还有未消费的帧，worker 会排空后再推 End
+    if (vadWorker_) {
+        vadWorker_->RequestFlush();
     }
 }
 
-void Pipeline::Start() {
-    if (running_) return;
+bool Pipeline::Start() {
+    if (running_) {
+        // 流水线仍在跑，只是采集被 PTT 松开暂停：恢复采集即可。
+        // 早期版本在此直接 return，导致松开一次热键后再按没有任何反应。
+        if (capturePaused_) {
+            if (!StartCapture()) return false;
+            capturePaused_ = false;
+            // 丢弃预启动/预停阶段遗留的收尾请求，避免新一段被提前截断
+            vadWorker_->ClearFlushRequest();
+            FCITX_INFO() << "[voice-input] Capture resumed (PTT)";
+        }
+        return true;
+    }
+    return StartWorkers(/*withCapture=*/true);
+}
 
+bool Pipeline::Prepare() {
+    if (running_) return true;
+    return StartWorkers(/*withCapture=*/false);
+}
+
+// 拉起 VAD/ASR 线程与引擎；withCapture=false 用于 PTT 预启动——线程先就绪，
+// 采集等按下热键时再开，避免首次按下要现场等待线程创建与设备打开。
+bool Pipeline::StartWorkers(bool withCapture) {
     if (!asrEngine_) {
         FCITX_ERROR() << "[voice-input] No ASR engine configured";
-        return;
+        return false;
     }
 
-    if (!StartCapture()) return;
+    if (withCapture) {
+        if (!StartCapture()) return false;
+    } else {
+        capturePaused_ = true;
+    }
 
     // Drain stale results from previous session
     AsrResult stale;
@@ -206,21 +254,27 @@ void Pipeline::Start() {
     if (!vadWorker_->IsRunning()) {
         // VAD 初始化失败（如模型缺失）：回滚 capture，避免无消费者推帧
         FCITX_ERROR() << "[voice-input] VAD failed to start, aborting";
-        capture_->Stop();
-        capture_.reset();
-        return;
+        if (capture_) {
+            capture_->Stop();
+            capture_.reset();
+        }
+        capturePaused_ = false;
+        return false;
     }
 
     running_ = true;
     asrThread_ = std::make_unique<std::thread>(&Pipeline::AsrDispatcherLoop, this);
 
-    FCITX_INFO() << "[voice-input] Pipeline started";
+    FCITX_INFO() << "[voice-input] Pipeline started"
+                 << (withCapture ? "" : " (capture pending PTT)");
+    return true;
 }
 
 void Pipeline::Stop() {
     if (!running_) return;
 
     running_ = false;
+    capturePaused_ = false;
 
     if (capture_) {
         capture_->Stop();
@@ -276,6 +330,7 @@ void Pipeline::Stop() {
 
 void Pipeline::Abort() {
     running_ = false;
+    capturePaused_ = false;
 
     if (capture_) {
         capture_->Stop();

@@ -75,7 +75,8 @@ private:
 
     // Push-to-talk state
     bool pttActive_ = false;
-    int pttHeldKeyCode_ = 0;  // hardware scancode of held hotkey
+    // 已松手、正在等 ASR 结果：期间不让 VAD 的 End 回调把「识别中…」覆盖掉
+    bool awaitingResult_ = false;
     std::unique_ptr<EventSourceTime> pttDelayedStopEvent_;
 
     // Audio level visualization

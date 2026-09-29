@@ -121,9 +121,18 @@ void VADWorker::WorkerLoop() {
         AudioFrame frame;
 
         if (!frameQueue_->TryPop(frame)) {
-            // Direct push mode: end the session when the queue is idle
-            if (directPush_ && sessionActive_) {
-                FlushUtterance(frame.timestamp_ms);
+            // 采集停止后由主线程显式请求收尾（PTT 松开）。必须等到队列真正
+            // 排空再 flush，否则最后几帧音频会被丢掉；也不能只凭「队列空闲」
+            // 判断——录音期间帧间隔 32ms、本循环 2ms 轮询，正常录音也会看到
+            // 空闲，那样每段语音都会在第一帧后就被切断。
+            if (flushRequested_.load()) {
+                flushRequested_.store(false);
+                if (sessionActive_) {
+                    FlushUtterance(lastSpeechMs_);
+                } else if (vadStatusCb_) {
+                    // 无会话可言（按下即松开，没录到帧）：仍需让界面复位
+                    vadStatusCb_(false);
+                }
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
             continue;
@@ -166,6 +175,7 @@ void VADWorker::WorkerLoop() {
             continue;
         }
 
+        assert(silero_);
         float prob = silero_->Predict(frame.pcm.data(), frame.pcm.size());
         if (prob < 0.0f) {
             // Inference failed
@@ -175,10 +185,11 @@ void VADWorker::WorkerLoop() {
         ProcessFrame(frame, prob, config);
     }
 
-    // Flush remaining audio on stop (direct push mode)
-    if (directPush_ && sessionActive_) {
+    // 采集线程已被 join（无更多帧在途），此处直接收尾即可
+    if (sessionActive_) {
         FlushUtterance(lastSpeechMs_);
     }
+    flushRequested_.store(false);
 }
 
 void VADWorker::FlushUtterance(int64_t endMs) {
