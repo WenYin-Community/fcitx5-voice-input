@@ -23,7 +23,8 @@
 - Voice input (OpenAI Whisper API / compatible services, Volcengine Doubao streaming ASR, or Xiaomi MiMo ASR)
 - Silero ONNX VAD for automatic speech segmentation (hands-free)
 - Optional Push-to-Talk mode: hold a hotkey to record, release to commit
-- Real-time partial transcript update during speech (requires Volcengine backend)
+- Real-time partial transcript update during speech (Volcengine, or OpenAI Realtime `ApiMode=realtime`)
+- Audio level meter in the status bar while recording
 - Queue-based pipeline: Audio Capture → VAD → ASR → EventDispatcher → commit
 - Graphical configuration via `fcitx5-configtool`
 - Smart delayed stop on window switching
@@ -46,11 +47,16 @@ makepkg -si
 
 #### COPR (Fedora / openSUSE)
 
+COPR publishing is wired into the release workflow but the project still has to
+be created on [copr.fedorainfracloud.org](https://copr.fedorainfracloud.org/)
+before the first tagged release can push to it. Once it exists:
+
 ```bash
-# Fedora
-sudo dnf copr enable wenyinos/fcitx5-voice-input
+sudo dnf copr enable <COPR_USER>/fcitx5-voice-input
 sudo dnf install fcitx5-voice-input
 ```
+
+Until then, install the RPM from [Releases](#deb--rpm-packages) instead.
 
 #### DEB / RPM packages
 
@@ -61,7 +67,7 @@ Download the package matching your distro from
 
 ```bash
 sudo apt install ./fcitx5-voice-input_*_ubuntu-24.04.deb   # Ubuntu / Debian
-sudo dnf install ./fcitx5-voice-input-*.fedora-44.rpm      # Fedora / openSUSE
+sudo dnf install ./fcitx5-voice-input-*_fedora-44.rpm     # Fedora / openSUSE
 ```
 
 > Ubuntu 24.04 and Debian 12 do not ship onnxruntime in their repositories;
@@ -84,6 +90,8 @@ Then open the Addon config for **VoiceInput**:
 | Option | Description | Default |
 |--------|-------------|---------|
 | `ActiveBackend` | ASR backend | `openai` |
+| `VoiceInputMode` | Recording mode: `vad` (hands-free auto-segment) or `ptt` (hold hotkey to record) | `vad` |
+| `PTTHotkey` | Push-to-talk hotkey (used when `VoiceInputMode=ptt`) | Right Ctrl |
 | `VADThreshold` | VAD sensitivity (0-100), higher = less sensitive | `20` |
 | `SilenceThresholdMs` | Silence duration to end utterance (ms) | `800` |
 | `StartFrames` | Consecutive speech frames to trigger onset | `2` |
@@ -106,7 +114,6 @@ Select your backend from the `ActiveBackend` dropdown, then click the gear butto
 | `LLMEnabled` | LLM post-processing | `false` |
 | `LLMModel` | Post-processing LLM model | (empty) |
 | `LLMSystemPrompt` | Post-processing system prompt | (empty) |
-| `LLMStream` | LLM streaming output | `true` |
 | `AutoCommit` | Auto-commit when no LLM | `true` |
 
 Set `ActiveBackend=openai`, click the gear button, and fill in your API Key. Compatible with any OpenAI-format service:
@@ -169,7 +176,7 @@ Volcengine authentication requires a resource purchased from the [Volcengine con
 
 1. Switch to **Voice Input** IME
 2. Start speaking — VAD automatically detects speech and records
-3. With the **Volcengine** backend, partial recognition text appears in the preedit area in real-time as you speak
+3. With the **Volcengine** backend or OpenAI `ApiMode=realtime`, partial recognition text appears in the preedit area in real-time as you speak
 4. Stop speaking (default 800ms silence timeout) — final recognition result is committed
 5. Stay in Voice Input mode and continue speaking for consecutive recognition
 
@@ -180,7 +187,7 @@ When switching windows, the plugin delays stop by 200ms. Quick switch-back cance
 ### Dependencies
 
 - `fcitx5` — Input method framework
-- `libpulse-simple` — PulseAudio capture (preferred)
+- `libpulse-simple` — PulseAudio capture (preferred; at least one capture backend is required)
 - `libpipewire-0.3` — PipeWire capture (fallback)
 - `jsoncpp` — JSON parsing
 - `libcurl` — HTTP/WebSocket client (>= 7.86.0, required for ASR)
@@ -221,7 +228,7 @@ sudo cmake --install build --prefix /usr
 
 - **API Key Security**: API keys are stored in plain text in `~/.config/fcitx5/conf/voiceinput-openai.conf` and `~/.config/fcitx5/conf/voiceinput-volcengine.conf`. Ensure proper file permissions
 - **Network Required**: All supported ASR backends are cloud services; an internet connection is required
-- **Audio Device**: Auto-selects system default input. To specify a device, choose from the `AudioSource` dropdown. Only input sources are listed (no Monitor sources)
+- **Audio Device**: Selects an input source automatically at startup (prefers `alsa_input.*`, skips monitor and echo-cancel sources); there is no manual device picker in the config UI
 - **VAD Model**: The Silero VAD model is distributed via git submodule (`third_party/silero-vad/`) and copied to the install directory at build time. Run `git submodule update --init --recursive` before building
 - **PipeWire Users**: The PulseAudio backend works fine under pipewire-pulse. Native PipeWire is only used as fallback when PulseAudio is completely unavailable
 - **Window Switching**: A 200ms delayed stop prevents unnecessary restarts on quick window switches. Long inactivity will stop the pipeline
@@ -234,7 +241,7 @@ Audio Capture Thread → FrameQueue → VAD Worker Thread → SpeechEventQueue �
 SpeechEvent types: Begin (speech onset) → Audio (32ms frames, batched to 200ms by Pipeline) → End (silence) / Cancel (too short)
 ```
 
-Three worker threads + main thread, connected by `ThreadSafeQueue`. See [ARCHITECTURE.md](ARCHITECTURE.md) for details.
+Three worker threads + main thread, connected by `ThreadSafeQueue`. See [ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) for details.
 
 ## License
 

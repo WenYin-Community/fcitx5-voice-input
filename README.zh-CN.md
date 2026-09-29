@@ -23,7 +23,8 @@
 - 中文语音输入（OpenAI Whisper API / 兼容服务、火山引擎豆包流式语音，或小米 MiMo ASR）
 - Silero ONNX VAD 自动分段录音（免按键）
 - 可选按住说话（PTT）模式：按住热键录音，松开上屏
-- 说话过程中实时显示识别中间结果（火山引擎后端支持）
+- 说话过程中实时显示识别中间结果（火山引擎后端，或 OpenAI Realtime `ApiMode=realtime`）
+- 录音时状态栏显示音量电平条
 - 队列管道架构：音频采集 → VAD 分段 → ASR 识别 → EventDispatcher 上屏
 - 通过 `fcitx5-configtool` 图形化配置
 - 窗口快速切换自动延迟停止，防止误停
@@ -46,11 +47,16 @@ makepkg -si
 
 #### COPR (Fedora / openSUSE)
 
+COPR 发布已接入 release 流程，但需先在
+[copr.fedorainfracloud.org](https://copr.fedorainfracloud.org/) 创建项目，
+打 tag 发布时才会推送。项目建好后：
+
 ```bash
-# Fedora
-sudo dnf copr enable wenyinos/fcitx5-voice-input
+sudo dnf copr enable <COPR 用户名>/fcitx5-voice-input
 sudo dnf install fcitx5-voice-input
 ```
+
+在此之前，请从 [Releases](#deb--rpm-安装包) 安装 RPM 包。
 
 #### DEB / RPM 安装包
 
@@ -60,7 +66,7 @@ sudo dnf install fcitx5-voice-input
 
 ```bash
 sudo apt install ./fcitx5-voice-input_*_ubuntu-24.04.deb   # Ubuntu / Debian
-sudo dnf install ./fcitx5-voice-input-*.fedora-44.rpm      # Fedora / openSUSE
+sudo dnf install ./fcitx5-voice-input-*_fedora-44.rpm     # Fedora / openSUSE
 ```
 
 > Ubuntu 24.04 与 Debian 12 官方仓库没有 onnxruntime，需先自行安装其运行时
@@ -82,6 +88,8 @@ sudo dnf install ./fcitx5-voice-input-*.fedora-44.rpm      # Fedora / openSUSE
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
 | `ActiveBackend` | ASR 后端 | `openai` |
+| `VoiceInputMode` | 录音模式：`vad`（免按键自动分段）或 `ptt`（按住热键说话） | `vad` |
+| `PTTHotkey` | 按住说话热键（`VoiceInputMode=ptt` 时生效） | 右 Ctrl |
 | `VADThreshold` | VAD 灵敏度 (0-100)，越高越不易触发 | `20` |
 | `SilenceThresholdMs` | 静音多久结束说话 (ms) | `800` |
 | `StartFrames` | 连续多少帧判定说话开始 | `2` |
@@ -104,7 +112,6 @@ sudo dnf install ./fcitx5-voice-input-*.fedora-44.rpm      # Fedora / openSUSE
 | `LLMEnabled` | LLM 后处理 | `false` |
 | `LLMModel` | 后处理 LLM 模型 | （空） |
 | `LLMSystemPrompt` | 后处理系统提示词 | （空） |
-| `LLMStream` | LLM 流式输出 | `true` |
 | `AutoCommit` | 无 LLM 时自动上屏 | `true` |
 
 设置 `ActiveBackend=openai`，点击齿轮按钮，然后填入您的 API Key。支持所有 OpenAI 兼容服务，如：
@@ -168,7 +175,7 @@ sudo dnf install ./fcitx5-voice-input-*.fedora-44.rpm      # Fedora / openSUSE
 
 1. 切换到 **Voice Input** 输入法
 2. 开始说话，VAD 自动检测人声并录音
-3. 使用**火山引擎**后端时，说话过程中会实时显示识别中间结果
+3. 使用**火山引擎**后端或 OpenAI `ApiMode=realtime` 时，说话过程中会实时显示识别中间结果
 4. 停止说话（默认 800ms 静音超时），最终识别结果自动上屏
 5. 保持语音输入模式，继续说话可连续识别
 
@@ -179,7 +186,7 @@ sudo dnf install ./fcitx5-voice-input-*.fedora-44.rpm      # Fedora / openSUSE
 ### 依赖
 
 - `fcitx5` — 输入法框架
-- `libpulse-simple` — PulseAudio 音频捕获（优先）
+- `libpulse-simple` — PulseAudio 音频捕获（优先；两个录音后端至少需要一个）
 - `libpipewire-0.3` — PipeWire 音频捕获（fallback）
 - `jsoncpp` — JSON 解析
 - `libcurl` — HTTP/WebSocket 客户端（>= 7.86.0，ASR 必需）
@@ -220,7 +227,7 @@ sudo cmake --install build --prefix /usr
 
 - **API Key 安全**：API Key 明文存储在 `~/.config/fcitx5/conf/voiceinput-openai.conf` 和 `~/.config/fcitx5/conf/voiceinput-volcengine.conf` 中，请注意文件权限
 - **网络要求**：所有受支持的 ASR 后端均为云服务，需要网络连接
-- **音频设备**：默认自动选择系统音频输入设备。如需指定，在 `AudioSource` 下拉框中选择。仅支持输入源（Source），不支持 Monitor 源
+- **音频设备**：启动时自动选择输入源（优先 `alsa_input.*`，跳过 monitor 与回声消除源）；配置界面暂不提供手动选择设备的选项
 - **VAD 模型**：Silero VAD 模型通过 git submodule 分发（`third_party/silero-vad/`），编译时自动复制到安装目录。构建前务必执行 `git submodule update --init --recursive`
 - **PipeWire 用户**：PulseAudio 后端也能在 pipewire-pulse 下正常工作，仅在 PulseAudio 完全不可用时 fallback 到 PipeWire 直连
 - **窗口切换**：快速切换窗口时插件使用延迟停止机制（200ms），不会频繁重启流水线。长时间切出后会自动停止
@@ -233,7 +240,7 @@ sudo cmake --install build --prefix /usr
 SpeechEvent 类型: Begin（说话开始）→ Audio（32ms 帧，Pipeline 聚合到 200ms）→ End（静音）/ Cancel（语音太短丢弃）
 ```
 
-三个工作线程 + 主线程，通过 `ThreadSafeQueue` 连接各阶段。详见 [ARCHITECTURE.md](ARCHITECTURE.md)。
+三个工作线程 + 主线程，通过 `ThreadSafeQueue` 连接各阶段。详见 [ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md)。
 
 ## 许可证
 
