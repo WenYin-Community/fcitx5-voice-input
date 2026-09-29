@@ -16,7 +16,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release \
 cmake --build build -j"$(nproc)"
 ```
 
-选项：`BUILD_TESTS`（目前无测试文件）。
+选项：`BUILD_TESTS`（构建 `tests/` 下的单元测试；CI 以 `-DBUILD_TESTS=ON` 构建并跑 ctest）。
 
 ## 依赖
 
@@ -30,7 +30,7 @@ cmake --build build -j"$(nproc)"
 ```
 src/addon/
 ├── engine.cpp/.h          # Fcitx5 InputMethodEngineV2 入口
-├── types.h                # AudioFrame/Utterance/AsrResult 类型定义
+├── types.h                # AudioFrame/SpeechEvent/AsrResult 类型定义
 ├── voiceinput.conf.in     # addon 配置模板（@PROJECT_VERSION@ 替换）
 ├── config/
 │   └── voiceinput-config.h   # FCITX_CONFIGURATION 宏定义配置键
@@ -39,13 +39,20 @@ src/addon/
 ├── capture/pipewire_capture.cpp/.h  # PipeWire 音频捕获（fallback, ringbuffer+drain thread）
 ├── vad/silero_vad.cpp/.h   # Silero ONNX 封装（int16 输入, predict() 返回概率）
 ├── vad/vad.cpp/.h         # VADWorker（Idle/Speaking 状态机, pre-roll, 队列消费/生产）
-├── pipeline/pipeline.cpp/.h   # 管道编排（FrameQueue/UtteranceQueue/ResultQueue + 3 worker 线程）
+├── pipeline/pipeline.cpp/.h   # 管道编排（FrameQueue/SpeechEventQueue/ResultQueue + 3 worker 线程）
 ├── asr/
-│   ├── asr_engine.h       # 抽象接口（Start/FeedAudio/Stop）
-│   └── openai_asr.cpp/.h  # OpenAI 兼容 ASR（默认，HTTP multipart WAV）
+│   ├── asr_engine.cpp/.h   # AsrEngine 抽象接口（StartSession 工厂）
+│   ├── asr_session.h       # AsrSession 接口（FeedAudio/End/Cancel）
+│   ├── openai_asr.cpp/.h   # OpenAI 兼容 ASR（whisper / chat 模式）
+│   ├── realtime_asr.cpp/.h # OpenAI Realtime 流式（WS, 16k→24k）
+│   ├── volcengine_asr.cpp/.h # 火山引擎豆包流式 ASR（WS）
+│   ├── session_reaper.cpp/.h # 游离会话回收线程
+│   ├── wav_encoder.cpp/.h  # WAV 编码
+│   └── utils/base64.cpp/.h # base64（chat 模式 data URI）
+├── llm/llm_client.cpp/.h   # LLM 后处理客户端（OpenAI 兼容 chat）
 └── utils/
     ├── audio_buffer.h     # Lock-free SPSC ring buffer（仅 PipeWire 内部使用）
-    └── thread_safe_queue.h   # mutex + condition_variable 队列（Frame/Utterance/Result）
+    └── thread_safe_queue.h   # mutex + condition_variable 队列（Frame/SpeechEvent/Result）
 po/
 └── zh_CN.po             # 中文翻译文件
 ```
@@ -62,31 +69,37 @@ po/
 - **Ring buffer**: `Clear()` 被故意省略（与 PipeWire 回调 data race），清空用 `Read()` drain 模式
 - **音频格式统一**: 16kHz mono, int16, 512 samples/window (32ms)
 - **VAD**: 仅 Silero ONNX, predict() 返回 0~1 概率, Idle/Speaking 状态机
-- **Pipeline 管道**: FrameQueue → VADWorker → UtteranceQueue → ASRWorker → ResultQueue → eventDispatcher → 主线程
+- **Pipeline 管道**: FrameQueue → VADWorker → SpeechEventQueue → ASRWorker → ResultQueue → eventDispatcher → 主线程
 - **Config 热加载**: `setConfig()` → `voiceinput.conf` 保存 + `pipeline_->SetConfig()`
 - **交互方式**: 切换到 Voice Input 即启动 pipeline；VAD 检测到人声分段，静音后提交 ASR；主线程 eventDispatcher 接收结果 commit
 
 ## 与 ARCHITECTURE.md 的关系
 
-ARCHITECTURE.md 已与代码同步。提到的超前功能（Command 引擎、LLM 后处理、场景系统、单元测试、多发行版打包）均在 Route Map 中标记为待实现，非代码与文档的不一致。
+ARCHITECTURE.md 已与代码同步。文档中仍标为待实现的超前功能（Command 引擎、场景系统等）属 Route Map 规划，非代码与文档的不一致。
 
 ## CI
 
 GitHub Actions（详见 `.github/workflows/` 与 `.github/actions/build/distro/*.sh`）：
 
-- `ci.yml`：PR/push 触发。**7 发行版容器矩阵**（ubuntu-24.04 / ubuntu-26.04 /
-debian-12 / debian-13 / fedora-44 / opensuse-tumbleweed / archlinux），每发行版在
-原生容器内构建原生包（DEB/RPM/pkg.tar.zst）；另含链接校验（nm/readelf/dlopen
-smoke，仅 verify job 跑一次）与 build-no-pipewire 回归防护 job。
+- `ci.yml`：PR/push 触发。**6 发行版容器矩阵**（ubuntu-24.04 / ubuntu-26.04 /
+debian-12 / debian-13 / fedora-44 / opensuse-tumbleweed），每发行版在原生容器内
+构建原生包（DEB/RPM）；Arch 由独立的 arch job 在 archlinux 容器内直跑 makepkg
+（pkg.tar.zst）。另含链接校验（nm/readelf/dlopen smoke，仅 verify job 跑一次）
+与 build-no-pipewire 回归防护 job；每个发行版构建都跑 ctest 单元测试。
 - `release.yml`：tag `v*` 触发。复用同一构建矩阵，`softprops/action-gh-release`
-  v3 生成 draft release（含全部发行版产物 + AUR 源码包）。
+  v3 生成 draft release（含全部发行版产物 + AUR 源码包），并推送 AUR 与 COPR
+  （凭证取自组织级 secret，缺失时自动跳过）。
 - onnxruntime 双策略：`system`（发行版系统包，DEB 开 dpkg-shlibdeps 自动依赖，
   RPM 由 rpmbuild 自动依赖）或 `download`（upstream release 1.28.0，缓存加速）。
 - Arch 包：archlinux 容器内直跑 makepkg（无 Docker daemon）。
 
-无测试步骤。
+单元测试在 `tests/`（`test_main.cpp`，34 个用例），由 build action 的
+`ctest --test-dir build` 执行。
 
 ## 打包
 
-- Arch: `aur/PKGBUILD`（依赖 fcitx5/pipewire/jsoncpp/curl/onnxruntime-cpu）
-- DEB: CPack 自动生成
+- Arch: `aur/PKGBUILD`（依赖 fcitx5/jsoncpp/curl/onnxruntime-cpu/zlib；录音后端为
+  optdepends）。Silero 模型作为固定 commit 的独立 source 下载，标签归档不含子模块。
+- RPM: CPack 自动生成（`release.yml` 的构建矩阵），另有独立 spec
+  `rpm/fcitx5-voice-input.spec` 供 COPR 构建 SRPM，模型走 `Source1`。
+- DEB: CPack 自动生成。

@@ -20,11 +20,11 @@ cmake --build build -j"$(nproc)"
 sudo cmake --install build --prefix /usr
 ```
 
-CMake 选项：`BUILD_TESTS`（默认 OFF，目前无测试文件）、`ONNXRUNTIME_ROOT`（自定义 ONNX Runtime 路径）。
+CMake 选项：`BUILD_TESTS`（默认 OFF，开启后构建 `tests/` 单元测试）、`ONNXRUNTIME_ROOT`（自定义 ONNX Runtime 路径）。
 
 ## 依赖
 
-fcitx5（pkg-config 名 `fcitx5` 或 `Fcitx5Core`）、`libpipewire-0.3`、`libpulse-simple`、`jsoncpp`、`libcurl`、`onnxruntime`。
+fcitx5（pkg-config 名 `fcitx5` 或 `Fcitx5Core`）、`jsoncpp`、`libcurl`（>= 7.86.0）、`zlib`、`onnxruntime`，以及录音后端二者至少其一：`libpulse-simple`（优先）、`libpipewire-0.3`（fallback）。两个录音库均为运行期 dlopen，无链接期依赖。
 
 **Arch**: `sudo pacman -S fcitx5 pulseaudio pipewire jsoncpp curl onnxruntime-cpu`
 **Debian**: `sudo apt install fcitx5 libpulse-dev libpipewire-0.3-dev libjsoncpp-dev libcurl4-openssl-dev libonnxruntime-dev`
@@ -38,20 +38,20 @@ fcitx5（pkg-config 名 `fcitx5` 或 `Fcitx5Core`）、`libpipewire-0.3`、`libp
 ### 数据流
 
 ```
-音频捕获线程 → FrameQueue → VAD Worker 线程 → UtteranceQueue → ASR Worker 线程 → ResultQueue → EventDispatcher → 主线程 commitString
+音频捕获线程 → FrameQueue → VAD Worker 线程 → SpeechEventQueue → ASR Worker 线程 → ResultQueue → EventDispatcher → 主线程 commitString
 ```
 
 - **主线程**（Fcitx5 事件循环）：activate/deactivate 管理、PollResults() 轮询 ResultQueue 并 commitString、状态文字更新
 - **音频捕获线程**：PulseAudio 优先（libpulse-simple 同步读取），失败后 PipeWire fallback（pw_stream + lock-free ring buffer）
-- **VAD Worker 线程**：消费 FrameQueue，Silero ONNX predict() 返回概率，Idle/Speaking 状态机，输出完整说话段到 UtteranceQueue
-- **ASR Worker 线程**：消费 UtteranceQueue，构建 WAV，HTTP POST 到 OpenAI 兼容 API，结果推入 ResultQueue
+- **VAD Worker 线程**：消费 FrameQueue，Silero ONNX predict() 返回概率，Idle/Speaking 状态机，按 SpeechEvent（Begin/Audio/End/Cancel）推入 SpeechEventQueue
+- **ASR Worker 线程**：消费 SpeechEventQueue，按后端类型建立会话——OpenAI 兼容走 HTTP（multipart WAV 或 Chat Completions JSON），Realtime/Volcengine 走 WebSocket 流式——结果推入 ResultQueue
 
 ### 关键源文件
 
 ```
 src/addon/
 ├── engine.cpp/.h              # VoiceInputEngine — Fcitx5 InputMethodEngineV2 入口
-├── types.h                    # AudioFrame / Utterance / AsrResult 数据类型
+├── types.h                    # AudioFrame / SpeechEvent / AsrResult 数据类型
 ├── config/voiceinput-config.h # FCITX_CONFIGURATION 宏定义（所有配置键）
 ├── capture/
 │   ├── audio_capture.h        # AudioCapture 抽象接口
@@ -62,8 +62,15 @@ src/addon/
 │   └── vad.*                  # VADWorker 状态机（pre-roll 缓冲、静音超时分段）
 ├── pipeline/pipeline.*        # Pipeline 编排器（3 队列 + 3 线程生命周期管理）
 ├── asr/
-│   ├── asr_engine.h           # AsrEngine 抽象接口
-│   └── openai_asr.*           # OpenAI 兼容 ASR 实现（HTTP multipart WAV）
+│   ├── asr_engine.h            # AsrEngine 抽象接口（StartSession 工厂）
+│   ├── asr_session.h           # AsrSession 接口（FeedAudio/End/Cancel）
+│   ├── openai_asr.*            # OpenAI 兼容 ASR（HTTP multipart / Chat Completions）
+│   ├── realtime_asr.*          # OpenAI Realtime 流式（WebSocket, 16k→24k）
+│   ├── volcengine_asr.*        # 火山引擎豆包流式（WebSocket）
+│   ├── session_reaper.*        # 游离会话回收线程
+│   ├── wav_encoder.*           # WAV 编码（multipart 模式）
+│   └── utils/base64.*          # base64 编码（chat 模式 data URI）
+├── llm/llm_client.*            # LLM 后处理客户端（OpenAI 兼容 chat）
 └── utils/
     ├── audio_buffer.h         # AudioRingBuffer — Lock-free SPSC（仅 PipeWire 内部使用）
     └── thread_safe_queue.h    # ThreadSafeQueue<T> — mutex+cv 通用队列
