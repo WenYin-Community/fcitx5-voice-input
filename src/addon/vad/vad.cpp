@@ -17,12 +17,6 @@ std::string DefaultSileroModelPath() {
     return std::string(VOICE_INPUT_MODEL_DIR) + "/silero_vad.onnx";
 }
 
-int64_t NowMs() {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(
-               std::chrono::steady_clock::now().time_since_epoch())
-        .count();
-}
-
 size_t PreRollSamples(int preRollMs) {
     return static_cast<size_t>(kSampleRate) * preRollMs / 1000;
 }
@@ -200,12 +194,12 @@ void VADWorker::ProcessFrame(const AudioFrame& frame, float probability,
     bool speechStart = probability >= config.speechThreshold;
     bool speechKeep = probability >= config.silenceThreshold;
 
-    AppendPreRoll(frame.pcm, PreRollSamples(config.preRollMs));
-
     if (state_ == State::Idle) {
         if (speechStart) {
             speechFrames_++;
             if (speechFrames_ >= config.startFrames) {
+                // 本帧触发 onset：pre-roll 只包含它之前的音频，本帧随后
+                // 作为普通音频单独推送，避免同一帧被发送两次
                 state_ = State::Speaking;
                 startMs_ = frame.timestamp_ms - config.preRollMs;
 
@@ -238,9 +232,12 @@ void VADWorker::ProcessFrame(const AudioFrame& frame, float probability,
                 if (vadStatusCb_) {
                     vadStatusCb_(true);
                 }
+            } else {
+                AppendPreRoll(frame.pcm, PreRollSamples(config.preRollMs));
             }
         } else {
             speechFrames_ = 0;
+            AppendPreRoll(frame.pcm, PreRollSamples(config.preRollMs));
         }
         return;
     }

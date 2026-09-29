@@ -160,6 +160,17 @@ struct VadTestHarness {
         }
     }
 
+    // Push `count` frames whose samples carry the 1-based frame index, so a
+    // frame that is delivered twice is distinguishable from its neighbours.
+    void PushTagged(int count) {
+        for (int i = 0; i < count; ++i) {
+            fcitx::AudioFrame f;
+            f.timestamp_ms = static_cast<int64_t>(i * fcitx::kFrameMs);
+            std::fill(f.pcm.begin(), f.pcm.end(), static_cast<int16_t>(i + 1));
+            frames.Push(f);
+        }
+    }
+
     // Wait for the worker to go idle, then drain all events.
     std::vector<fcitx::SpeechEvent> DrainEvents(int timeoutMs) {
         auto deadline = std::chrono::steady_clock::now() +
@@ -185,13 +196,15 @@ struct VadTestHarness {
 
 void TestVadSpeechOnset() {
     VadTestHarness h;
-    // 2 onset frames, 3 speech frames, 3 trailing silence frames
-    h.probs->assign({0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.0f, 0.0f, 0.0f});
+    // 1 leading silence frame, 4 speech frames, 3 trailing silence frames.
+    // Onset lands on frame 2, so the pre-roll buffer holds the two frames
+    // before it (silence + first speech frame) = the configured 64ms.
+    h.probs->assign({0.0f, 0.9f, 0.9f, 0.9f, 0.9f, 0.0f, 0.0f, 0.0f});
     h.worker.Start();
     h.Push(8, 0.5f);
 
     auto events = h.DrainEvents(2000);
-    CHECK_EQ(events.size(), 10u);  // Begin + preRoll + 7 Audio + End
+    CHECK_EQ(events.size(), 9u);  // Begin + preRoll + 6 Audio + End
     CHECK(events[0].type == fcitx::SpeechEventType::Begin);
     // pre-roll audio event carries 2 frames (64ms)
     CHECK(events[1].type == fcitx::SpeechEventType::Audio);
@@ -266,6 +279,37 @@ void TestVadDirectPushShortUtterance() {
     CHECK(events[2].type == fcitx::SpeechEventType::End);
 }
 
+// The pre-roll buffer and the onset frame must not overlap: the frame that
+// trips onset is sent once, preceded only by audio captured before it.
+void TestVadOnsetFrameNotDuplicated() {
+    VadTestHarness h;
+    h.probs->assign({0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.0f, 0.0f, 0.0f});
+    h.worker.Start();
+    h.PushTagged(8);
+
+    auto events = h.DrainEvents(2000);
+
+    // Flatten the audio payloads into the sequence of frame tags sent to ASR.
+    std::vector<int16_t> tags;
+    for (const auto& e : events) {
+        if (e.type != fcitx::SpeechEventType::Audio) continue;
+        for (size_t off = 0; off < e.pcm.size(); off += fcitx::kWindowSize) {
+            tags.push_back(e.pcm[off]);
+        }
+    }
+
+    CHECK(!tags.empty());
+    // Strictly increasing: no tag repeats, so no frame is sent twice.
+    bool strictlyIncreasing = true;
+    for (size_t i = 1; i < tags.size(); ++i) {
+        if (tags[i] <= tags[i - 1]) strictlyIncreasing = false;
+    }
+    CHECK(strictlyIncreasing);
+    // Onset frame (tag 2) closes the pre-roll, and the stream runs to tag 8.
+    CHECK_EQ(static_cast<int>(tags.back()), 8);
+    CHECK_EQ(tags.size(), 8u);
+}
+
 } // anonymous namespace
 
 int main() {
@@ -277,6 +321,7 @@ int main() {
     TestVadShortUtteranceCancelled();
     TestVadMaxSpeechForceFlush();
     TestVadDirectPushShortUtterance();
+    TestVadOnsetFrameNotDuplicated();
 
     if (g_failures == 0) {
         std::printf("All tests passed\n");
