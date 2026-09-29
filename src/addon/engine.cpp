@@ -1,3 +1,4 @@
+#include <cassert>
 #include <string>
 #include <sys/stat.h>
 
@@ -227,7 +228,7 @@ void VoiceInputEngine::keyEvent(const InputMethodEntry& entry,
 
     // Push-to-talk hotkey handling
     if (config_.voiceInputMode.value() != "ptt") return;
-    if (!pipeline_) return;
+    assert(pipeline_);
 
     const auto& hotkeys = config_.pttHotkey.value();
     bool isPTTKey = false;

@@ -1,6 +1,7 @@
 #include "pipewire_capture.h"
 
 #include <algorithm>
+#include <cassert>
 #include <chrono>
 #include <cstring>
 #include <dlfcn.h>
@@ -98,6 +99,9 @@ void PipeWireCapture::UnloadLib() {
 
 bool PipeWireCapture::Start() {
     if (running_) return true;
+
+    // 帧队列由 Pipeline::StartCapture 在 Start 之前接好，缺失属装配错误
+    assert(frameQueue_);
 
     if (!LoadLib()) return false;
 
@@ -294,7 +298,7 @@ void PipeWireCapture::DrainLoop() {
             continue;
         }
 
-        if (!frameQueue_) continue;
+        assert(frameQueue_);
 
         AudioFrame frame;
         frame.timestamp_ms = std::chrono::duration_cast<std::chrono::milliseconds>(

@@ -1,6 +1,7 @@
 #include "vad.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <chrono>
 #include <thread>
@@ -73,6 +74,11 @@ void VADWorker::SetVadModel(std::unique_ptr<VadModel> model) {
 void VADWorker::Start() {
     if (running_) return;
 
+    // 队列是必需的协作对象，由 Pipeline::Init 在 Start 之前接好；
+    // 缺失属于装配错误，Debug 构建下立即暴露而不是静默丢音频
+    assert(frameQueue_);
+    assert(speechEventQueue_);
+
     if (!directPush_) {
         // Init Silero（跨会话缓存模型实例，避免每次切换输入法都在主线程
         // 重建 ONNX Session 造成卡顿；模型路径变化时重建）
@@ -114,7 +120,7 @@ void VADWorker::WorkerLoop() {
     while (running_) {
         AudioFrame frame;
 
-        if (!frameQueue_ || !frameQueue_->TryPop(frame)) {
+        if (!frameQueue_->TryPop(frame)) {
             // Direct push mode: end the session when the queue is idle
             if (directPush_ && sessionActive_) {
                 FlushUtterance(frame.timestamp_ms);
@@ -147,7 +153,7 @@ void VADWorker::WorkerLoop() {
                 SpeechEvent begin;
                 begin.type = SpeechEventType::Begin;
                 begin.timestamp_ms = startMs_;
-                if (speechEventQueue_) speechEventQueue_->Push(std::move(begin));
+                speechEventQueue_->Push(std::move(begin));
                 if (vadStatusCb_) vadStatusCb_(true);
             }
 
@@ -155,7 +161,7 @@ void VADWorker::WorkerLoop() {
             audio.type = SpeechEventType::Audio;
             audio.timestamp_ms = frame.timestamp_ms;
             audio.pcm.assign(frame.pcm.begin(), frame.pcm.end());
-            if (speechEventQueue_) speechEventQueue_->Push(std::move(audio));
+            speechEventQueue_->Push(std::move(audio));
             lastSpeechMs_ = frame.timestamp_ms;
             continue;
         }
@@ -184,7 +190,7 @@ void VADWorker::FlushUtterance(int64_t endMs) {
     SpeechEvent end;
     end.type = SpeechEventType::End;
     end.timestamp_ms = endMs;
-    if (speechEventQueue_) speechEventQueue_->Push(std::move(end));
+    speechEventQueue_->Push(std::move(end));
     if (vadStatusCb_) vadStatusCb_(false);
     ResetSession();
 }
@@ -206,21 +212,21 @@ void VADWorker::ProcessFrame(const AudioFrame& frame, float probability,
                 SpeechEvent begin;
                 begin.type = SpeechEventType::Begin;
                 begin.timestamp_ms = startMs_;
-                if (speechEventQueue_) speechEventQueue_->Push(std::move(begin));
+                speechEventQueue_->Push(std::move(begin));
 
                 if (!preRoll_.empty()) {
                     SpeechEvent preAudio;
                     preAudio.type = SpeechEventType::Audio;
                     preAudio.timestamp_ms = startMs_;
                     preAudio.pcm.assign(preRoll_.begin(), preRoll_.end());
-                    if (speechEventQueue_) speechEventQueue_->Push(std::move(preAudio));
+                    speechEventQueue_->Push(std::move(preAudio));
                 }
 
                 SpeechEvent audio;
                 audio.type = SpeechEventType::Audio;
                 audio.timestamp_ms = frame.timestamp_ms;
                 audio.pcm.assign(frame.pcm.begin(), frame.pcm.end());
-                if (speechEventQueue_) speechEventQueue_->Push(std::move(audio));
+                speechEventQueue_->Push(std::move(audio));
 
                 silenceFrames_ = 0;
                 lastSpeechMs_ = frame.timestamp_ms;
@@ -247,7 +253,7 @@ void VADWorker::ProcessFrame(const AudioFrame& frame, float probability,
     audio.type = SpeechEventType::Audio;
     audio.timestamp_ms = frame.timestamp_ms;
     audio.pcm.assign(frame.pcm.begin(), frame.pcm.end());
-    if (speechEventQueue_) speechEventQueue_->Push(std::move(audio));
+    speechEventQueue_->Push(std::move(audio));
 
     if (speechKeep) {
         silenceFrames_ = 0;
@@ -270,14 +276,14 @@ void VADWorker::ProcessFrame(const AudioFrame& frame, float probability,
             SpeechEvent end;
             end.type = SpeechEventType::End;
             end.timestamp_ms = frame.timestamp_ms;
-            if (speechEventQueue_) speechEventQueue_->Push(std::move(end));
+            speechEventQueue_->Push(std::move(end));
             FCITX_INFO() << "[voice-input:vadworker] Utterance end, "
                          << (durationMs / 1000) << "." << (durationMs % 1000) << "s";
         } else {
             SpeechEvent cancel;
             cancel.type = SpeechEventType::Cancel;
             cancel.timestamp_ms = frame.timestamp_ms;
-            if (speechEventQueue_) speechEventQueue_->Push(std::move(cancel));
+            speechEventQueue_->Push(std::move(cancel));
             FCITX_DEBUG() << "[voice-input:vadworker] Utterance too short ("
                           << durationMs << "ms < " << config.minSpeechMs
                           << "ms), cancelled";

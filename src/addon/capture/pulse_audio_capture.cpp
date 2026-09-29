@@ -1,6 +1,7 @@
 #include "pulse_audio_capture.h"
 
 #include <array>
+#include <cassert>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -134,6 +135,9 @@ void PulseAudioCapture::UnloadLib() {
 bool PulseAudioCapture::Start() {
     if (running_) return true;
 
+    // 帧队列由 Pipeline::StartCapture 在 Start 之前接好，缺失属装配错误
+    assert(frameQueue_);
+
     if (!LoadLib()) return false;
 
     pa_sample_spec sampleSpec{};
@@ -207,7 +211,7 @@ void PulseAudioCapture::CaptureLoop() {
             break;
         }
 
-        if (!frameQueue_) continue;
+        assert(frameQueue_);
 
         AudioFrame frame;
         frame.timestamp_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
